@@ -1,6 +1,10 @@
+"use client";
+
 import Image from "next/image";
+import { useLocale } from "@/i18n/locale-provider";
 
 export function SiteFooter() {
+  const { messages } = useLocale();
   return (
     <footer className="bg-navy-deep py-10 text-center text-white">
       <Image
@@ -14,12 +18,10 @@ export function SiteFooter() {
       <p className="font-display text-sm font-semibold tracking-wide text-white/90">
         Together We Feed
       </p>
-      <p className="mt-2 text-xs text-white/60">
-        Alimento, água e cuidados essenciais a cães abandonados no sul da Europa.
+      <p className="mx-auto mt-2 max-w-md text-xs text-white/60">
+        {messages.footer.tagline}
       </p>
-      <p className="mt-4 text-xs text-white/40">
-        Clone para análise · Não é uma página oficial de pagamento
-      </p>
+      <p className="mt-4 text-xs text-white/40">{messages.footer.disclaimer}</p>
     </footer>
   );
 }

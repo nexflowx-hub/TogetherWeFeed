@@ -1,6 +1,10 @@
+"use client";
+
 import Image from "next/image";
+import { useLocale } from "@/i18n/locale-provider";
 
 export function Hero() {
+  const { messages } = useLocale();
   return (
     <section
       aria-label="Together We Feed"
@@ -14,7 +18,7 @@ export function Hero() {
         />
         <Image
           src="/media/images/hero-desktop.webp"
-          alt="Together We Feed — juntos alimentamos vidas"
+          alt={messages.hero.alt}
           width={1920}
           height={800}
           priority

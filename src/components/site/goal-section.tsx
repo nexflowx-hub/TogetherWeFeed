@@ -1,29 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useLocale } from "@/i18n/locale-provider";
 
-const GOAL_ROWS = [
-  { label: "Ração", value: 3858.44 },
-  { label: "Medicamentos", value: 1815.11 },
-  { label: "Veterinário", value: 3549.08 },
-  { label: "Renda", value: 1710.4 },
-  { label: "Outros", value: 1560.82 },
-];
+const GOAL_ROWS_EUR = [
+  { key: "racao", value: 3858.44 },
+  { key: "medicamentos", value: 1815.11 },
+  { key: "veterinario", value: 3549.08 },
+  { key: "renda", value: 1710.4 },
+  { key: "outros", value: 1560.82 },
+] as const;
 
-const RAISED = 995.45;
-const TOTAL = 12493.85;
-const PERCENT = Math.round((RAISED / TOTAL) * 100);
-
-function euro(n: number) {
-  return (
-    n.toLocaleString("pt-PT", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }) + " €"
-  );
-}
+const RAISED_EUR = 995.45;
+const TOTAL_EUR = 12493.85;
 
 export function GoalSection() {
+  const { messages, convertFromEur, formatPrice, currency } = useLocale();
   const ref = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
 
@@ -43,32 +35,24 @@ export function GoalSection() {
     return () => obs.disconnect();
   }, []);
 
-  const max = Math.max(...GOAL_ROWS.map((r) => r.value));
-  const ringPct = Math.max(PERCENT, 7);
+  const raised = convertFromEur(RAISED_EUR);
+  const total = convertFromEur(TOTAL_EUR);
+  const percent = Math.round((RAISED_EUR / TOTAL_EUR) * 100);
+  const ringPct = Math.max(percent, 7);
+  const max = Math.max(...GOAL_ROWS_EUR.map((r) => r.value));
 
   return (
     <section id="meta" className="bg-white py-14 sm:py-20">
       <div className="twf-container-narrow" ref={ref}>
         <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-white to-sky-soft p-6 shadow-2xl ring-1 ring-sky-soft sm:p-8">
           <div className="flex items-center gap-6">
-            {/* Progress ring */}
             <div
               className="relative grid h-24 w-24 shrink-0 place-items-center sm:h-28 sm:w-28"
               role="img"
-              aria-label={`${PERCENT}% da meta angariada`}
+              aria-label={`${percent}% ${messages.goal.ofGoal}`}
             >
-              <svg
-                viewBox="0 0 100 100"
-                className="absolute inset-0 h-full w-full -rotate-90"
-              >
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="42"
-                  fill="none"
-                  stroke="#bfe6fb"
-                  strokeWidth="10"
-                />
+              <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full -rotate-90">
+                <circle cx="50" cy="50" r="42" fill="none" stroke="#bfe6fb" strokeWidth="10" />
                 <circle
                   cx="50"
                   cy="50"
@@ -88,48 +72,45 @@ export function GoalSection() {
 
             <div>
               <div className="font-display text-3xl font-extrabold text-navy-deep sm:text-4xl">
-                {visible ? euro(RAISED) : "0,00 €"}
+                {visible ? formatPrice(raised) : formatPrice(0)}
               </div>
               <div className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">
-                angariados este mês
+                {messages.goal.raisedThisMonth}
+              </div>
+              <div className="mt-1 text-xs text-slate-400">
+                {currency} · 1 EUR ≈ {convertFromEur(1)} {currency}
               </div>
             </div>
           </div>
 
           <div className="mt-6 space-y-2.5">
-            {GOAL_ROWS.map((row) => (
-              <div
-                key={row.label}
-                className="flex items-center justify-between rounded-xl bg-white/70 px-4 py-2.5 text-sm ring-1 ring-sky-soft"
-              >
-                <span className="font-semibold text-slate-600">
-                  {row.label}
-                </span>
-                <span className="relative ml-3 flex-1">
-                  <span className="block h-1.5 overflow-hidden rounded-full bg-sky-soft">
-                    <span
-                      className="block h-full rounded-full bg-navy transition-[width] duration-1000 ease-out"
-                      style={{
-                        width: visible
-                          ? `${(row.value / max) * 100}%`
-                          : "0%",
-                      }}
-                    />
+            {GOAL_ROWS_EUR.map((row) => {
+              const value = convertFromEur(row.value);
+              const label = messages.goal[row.key];
+              return (
+                <div
+                  key={row.key}
+                  className="flex items-center justify-between rounded-xl bg-white/70 px-4 py-2.5 text-sm ring-1 ring-sky-soft"
+                >
+                  <span className="font-semibold text-slate-600">{label}</span>
+                  <span className="relative ml-3 flex-1">
+                    <span className="block h-1.5 overflow-hidden rounded-full bg-sky-soft">
+                      <span
+                        className="block h-full rounded-full bg-navy transition-[width] duration-1000 ease-out"
+                        style={{ width: visible ? `${(row.value / max) * 100}%` : "0%" }}
+                      />
+                    </span>
                   </span>
-                </span>
-                <b className="ml-3 font-display text-navy-deep">
-                  {euro(row.value)}
-                </b>
-              </div>
-            ))}
+                  <b className="ml-3 font-display text-navy-deep">{formatPrice(value)}</b>
+                </div>
+              );
+            })}
 
             <div className="mt-3 flex items-center justify-between rounded-xl bg-navy-deep px-4 py-3 text-white">
               <b className="font-display text-sm font-bold uppercase tracking-[0.14em]">
-                Meta do mês
+                {messages.goal.monthGoal}
               </b>
-              <b className="font-display text-lg font-extrabold">
-                {euro(TOTAL)}
-              </b>
+              <b className="font-display text-lg font-extrabold">{formatPrice(total)}</b>
             </div>
           </div>
         </div>

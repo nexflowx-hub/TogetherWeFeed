@@ -1,6 +1,8 @@
 import { DonateProvider } from "@/components/site/donate-provider";
+import { LocaleProvider } from "@/i18n/locale-provider";
 import { SiteHeader } from "@/components/site/site-header";
 import { Hero } from "@/components/site/hero";
+import { MatchCampaign } from "@/components/site/match-campaign";
 import { VideoSection } from "@/components/site/video-section";
 import { MissionSection } from "@/components/site/mission-section";
 import { StatsSection } from "@/components/site/stats-section";
@@ -17,67 +19,82 @@ import { BannerCta } from "@/components/site/banner-cta";
 import { SiteFooter } from "@/components/site/site-footer";
 import { StickyDonateBar } from "@/components/site/sticky-donate-bar";
 import { CheckoutDialog } from "@/components/site/checkout-dialog";
+import { ExitIntentModal } from "@/components/site/exit-intent-modal";
+import { SocialProofNotifications } from "@/components/site/social-proof-notifications";
+import { TrustBadges } from "@/components/site/trust-badges";
+import { JsonLd } from "@/components/site/json-ld";
 
 export default function Home() {
   return (
-    <DonateProvider>
-      <div id="topo" className="flex min-h-screen flex-col">
-        <SiteHeader />
-        <main className="flex-1">
-          <Hero />
+    <LocaleProvider>
+      <DonateProvider>
+        <div id="topo" className="flex min-h-screen flex-col">
+          <JsonLd />
+          <SiteHeader />
+          <main className="flex-1">
+            <Hero />
 
-          <div className="h-5 bg-white sm:h-6" />
+            <div className="h-5 bg-white sm:h-6" />
 
-          <VideoSection />
+            <MatchCampaign />
 
-          <MissionSection />
+            <VideoSection />
 
-          <div className="h-6 bg-white sm:h-8" />
+            <MissionSection />
 
-          <StatsSection />
+            <div className="h-6 bg-white sm:h-8" />
 
-          <DonateSection variant="sky" id="doar" ctaLabel="Quero ajudar agora" />
+            <StatsSection />
 
-          <div className="h-6 bg-sky-soft sm:h-8" />
+            <DonateSection variant="sky" id="doar" />
 
-          <UrgencySection />
+            <div className="bg-sky-soft pb-10 pt-2">
+              <TrustBadges />
+            </div>
 
-          <GoalSection />
+            <div className="h-6 bg-sky-soft sm:h-8" />
 
-          <ImpactsSection />
+            <UrgencySection />
 
-          <DonateSection
-            variant="navy"
-            id="doar-agora"
-            ctaLabel="Doar agora"
-          />
+            <GoalSection />
 
-          <div className="h-6 bg-sun sm:h-8" />
+            <ImpactsSection />
 
-          <StoriesCarousel />
+            <DonateSection variant="navy" id="doar-agora" />
 
-          <ContrastSection />
+            <div className="bg-navy-deep pb-10 pt-2">
+              <TrustBadges variant="dark" />
+            </div>
 
-          <LiveProgress />
+            <div className="h-6 bg-sun sm:h-8" />
 
-          <div className="h-6 bg-white sm:h-8" />
+            <StoriesCarousel />
 
-          <TestimonialsCarousel />
+            <ContrastSection />
 
-          <FaqSection />
+            <LiveProgress />
 
-          <div className="h-6 bg-sky-soft sm:h-8" />
+            <div className="h-6 bg-white sm:h-8" />
 
-          <BannerCta />
+            <TestimonialsCarousel />
 
-          <div className="h-6 bg-sky-soft sm:h-8" />
-        </main>
+            <FaqSection />
 
-        <SiteFooter />
+            <div className="h-6 bg-sky-soft sm:h-8" />
 
-        <StickyDonateBar />
-        <CheckoutDialog />
-      </div>
-    </DonateProvider>
+            <BannerCta />
+
+            <div className="h-6 bg-sky-soft sm:h-8" />
+          </main>
+
+          <SiteFooter />
+
+          <StickyDonateBar />
+          <SocialProofNotifications />
+          <CheckoutDialog />
+          <ExitIntentModal />
+        </div>
+      </DonateProvider>
+    </LocaleProvider>
   );
 }

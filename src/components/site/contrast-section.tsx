@@ -1,10 +1,12 @@
-const NO_ITEMS = [
-  "Sem si, as tigelas ficam vazias.",
-  "Sem si, o abrigo para. As contas vencem. O cuidado que salva todos os dias falha.",
-  "Sem si, mais de 500 cães resgatados, que já sofreram o abandono, ficam sem comida, sem tratamento e sem um lugar seguro para descansar.",
-];
+"use client";
+
+import { useLocale } from "@/i18n/locale-provider";
 
 export function ContrastSection() {
+  const { messages } = useLocale();
+  const c = messages.contrast;
+  const NO_ITEMS = [c.no1, c.no2, c.no3];
+
   return (
     <section id="consigo" className="bg-white py-14 sm:py-20">
       <div className="twf-container">
@@ -17,9 +19,7 @@ export function ContrastSection() {
               <div className="flex h-11 w-11 items-center justify-center rounded-full bg-rose-warn/10 text-xl font-bold text-rose-warn">
                 ✕
               </div>
-              <p className="text-[15px] leading-relaxed text-slate-700">
-                <strong className="text-rose-warn">Sem si</strong>, {text.replace(/^Sem si, /, "")}
-              </p>
+              <p className="text-[15px] leading-relaxed text-slate-700">{text}</p>
             </article>
           ))}
 
@@ -27,13 +27,7 @@ export function ContrastSection() {
             <div className="flex h-11 w-11 items-center justify-center rounded-full bg-grass/15 text-xl font-bold text-grass">
               ✓
             </div>
-            <p className="text-[15px] leading-relaxed text-slate-700">
-              <strong className="text-grass">Consigo</strong>,{" "}
-              <strong className="text-navy-deep">
-                cada patinha encontra proteção. Cada vida recebe cuidado. Cada
-                história ganha uma nova oportunidade de esperança 🐾💛
-              </strong>
-            </p>
+            <p className="text-[15px] leading-relaxed text-slate-700">{c.yes}</p>
           </article>
         </div>
       </div>

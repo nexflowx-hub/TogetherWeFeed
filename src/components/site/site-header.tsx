@@ -3,18 +3,21 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { Menu, X } from "lucide-react";
-
-const LINKS = [
-  { href: "#missao", label: "Missão" },
-  { href: "#doar", label: "Doar" },
-  { href: "#impactos", label: "Impactos" },
-  { href: "#historias", label: "Histórias" },
-  { href: "#faq", label: "FAQ" },
-];
+import { useLocale } from "@/i18n/locale-provider";
+import { LocaleSwitcher } from "./locale-switcher";
 
 export function SiteHeader() {
+  const { messages } = useLocale();
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  const LINKS = [
+    { href: "#missao", label: messages.nav.mission },
+    { href: "#doar", label: messages.nav.donate },
+    { href: "#impactos", label: messages.nav.impacts },
+    { href: "#historias", label: messages.nav.stories },
+    { href: "#faq", label: messages.nav.faq },
+  ];
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -27,9 +30,7 @@ export function SiteHeader() {
     <header
       className={
         "fixed inset-x-0 top-0 z-50 transition-all duration-300 " +
-        (scrolled
-          ? "bg-white/95 shadow-md backdrop-blur"
-          : "bg-transparent")
+        (scrolled ? "bg-white/95 shadow-md backdrop-blur" : "bg-transparent")
       }
     >
       <div className="twf-container flex h-16 items-center justify-between sm:h-20">
@@ -69,12 +70,15 @@ export function SiteHeader() {
         </nav>
 
         <div className="flex items-center gap-2">
+          <div className={scrolled ? "" : "[&_button]:bg-white/15 [&_button]:text-white [&_button:hover]:bg-white/25"}>
+            <LocaleSwitcher compact />
+          </div>
           <a href="#doar" className="twf-btn-green hidden sm:inline-flex">
-            Doar agora
+            {messages.nav.donateNow}
           </a>
           <button
             type="button"
-            aria-label="Abrir menu"
+            aria-label={messages.nav.menu}
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((o) => !o)}
             className={
@@ -106,7 +110,7 @@ export function SiteHeader() {
               onClick={() => setMenuOpen(false)}
               className="twf-btn-green mt-2"
             >
-              Doar agora
+              {messages.nav.donateNow}
             </a>
           </nav>
         </div>

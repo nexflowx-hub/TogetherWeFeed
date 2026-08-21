@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
-import { Play, Pause, Volume2, VolumeX } from "lucide-react";
+import { Play, Volume2, VolumeX } from "lucide-react";
+import { useLocale } from "@/i18n/locale-provider";
 
 export function VideoSection() {
+  const { messages } = useLocale();
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
 
@@ -12,10 +13,10 @@ export function VideoSection() {
     <section id="video" className="bg-white py-14 sm:py-20">
       <div className="twf-container">
         <h2 className="twf-section-title text-center text-navy-deep">
-          Conheça a Together We Feed
+          {messages.video.title}
         </h2>
         <p className="twf-subtitle mx-auto max-w-2xl text-center">
-          Assista e compreenda como a sua ajuda transforma vidas.
+          {messages.video.subtitle}
         </p>
 
         <div className="relative mx-auto mt-8 aspect-video w-full max-w-4xl overflow-hidden rounded-3xl bg-navy-deep shadow-2xl">
@@ -29,8 +30,6 @@ export function VideoSection() {
             controls={playing}
             className="h-full w-full object-cover"
           >
-            {/* Placeholder source — the original presentation video is not bundled.
-                The native controls will be available once playback is started. */}
             <source
               src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
               type="video/mp4"
@@ -41,7 +40,7 @@ export function VideoSection() {
             <button
               type="button"
               onClick={() => setPlaying(true)}
-              aria-label="Reproduzir vídeo de apresentação"
+              aria-label={messages.video.play}
               className="group absolute inset-0 flex items-center justify-center bg-navy-deep/40 transition-colors hover:bg-navy-deep/30"
             >
               <span className="flex h-20 w-20 items-center justify-center rounded-full bg-grass text-white shadow-2xl shadow-grass/40 transition-transform duration-200 group-hover:scale-110">
@@ -69,7 +68,7 @@ export function VideoSection() {
 
       <div className="mt-10 text-center">
         <a href="#doar" className="twf-btn-green-lg">
-          Quero ajudar
+          {messages.video.cta}
         </a>
       </div>
     </section>

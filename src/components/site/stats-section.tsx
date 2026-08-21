@@ -1,34 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useLocale } from "@/i18n/locale-provider";
 
 type Stat = {
   icon: string;
   value: number;
-  suffix: string;
-  prefix?: string;
+  prefix: string;
   label: string;
 };
 
-const STATS: Stat[] = [
-  {
-    icon: "🐾",
-    value: 4500,
-    prefix: "+",
-    suffix: "",
-    label: "Animais ajudados",
-  },
-  {
-    icon: "🥩",
-    value: 150000,
-    prefix: "+",
-    suffix: "",
-    label: "Mil refeições doadas",
-  },
-];
-
-function formatThousands(n: number) {
-  return n.toLocaleString("pt-PT").replace(/,/g, ".");
+function formatThousands(n: number, locale: string) {
+  return n.toLocaleString(locale.replace("_", "-")).replace(/,/g, ".");
 }
 
 function useCountUp(target: number, run: boolean, duration = 1600) {
@@ -54,6 +37,7 @@ function useCountUp(target: number, run: boolean, duration = 1600) {
 }
 
 function StatCard({ stat, run }: { stat: Stat; run: boolean }) {
+  const { locale } = useLocale();
   const v = useCountUp(stat.value, run);
   return (
     <article className="flex flex-col items-center gap-2 rounded-3xl bg-white px-6 py-8 text-center shadow-lg shadow-sky-soft/60 ring-1 ring-sky-soft">
@@ -62,8 +46,7 @@ function StatCard({ stat, run }: { stat: Stat; run: boolean }) {
       </div>
       <div className="font-display text-4xl font-extrabold text-navy-deep sm:text-5xl">
         {stat.prefix}
-        {formatThousands(v)}
-        {stat.suffix}
+        {formatThousands(v, locale)}
       </div>
       <div className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">
         {stat.label}
@@ -73,8 +56,14 @@ function StatCard({ stat, run }: { stat: Stat; run: boolean }) {
 }
 
 export function StatsSection() {
+  const { messages } = useLocale();
   const ref = useRef<HTMLDivElement>(null);
   const [run, setRun] = useState(false);
+
+  const STATS: Stat[] = [
+    { icon: "🐾", value: 4500, prefix: "+", label: messages.stats.animalsLabel },
+    { icon: "🥩", value: 150000, prefix: "+", label: messages.stats.mealsLabel },
+  ];
 
   useEffect(() => {
     const el = ref.current;
