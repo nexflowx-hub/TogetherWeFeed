@@ -20,12 +20,12 @@ export function StickyDonateBar() {
   return (
     <div
       className={
-        "fixed inset-x-0 bottom-0 z-40 transition-transform duration-300 " +
+        "fixed inset-x-0 bottom-0 z-40 transition-transform duration-300 twf-safe-bottom twf-safe-x " +
         (visible ? "translate-y-0" : "translate-y-full")
       }
       aria-hidden={!visible}
     >
-      <div className="mx-auto max-w-3xl px-3 pb-3 sm:px-4 sm:pb-4">
+      <div className="mx-auto max-w-3xl px-3 pb-3 pt-1 sm:px-4 sm:pb-4">
         <div className="flex flex-col gap-3 rounded-2xl border border-sky-soft bg-white/95 p-3 shadow-2xl ring-1 ring-navy/5 backdrop-blur sm:flex-row sm:items-center sm:gap-4 sm:p-3">
           <div className="hidden items-center gap-2 sm:flex">
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-grass/10 text-grass">

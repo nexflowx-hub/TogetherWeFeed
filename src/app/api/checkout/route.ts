@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
+import type Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
-import { CURRENCIES, type CurrencyCode } from "@/i18n/config";
+import {
+  CURRENCIES,
+  getLocaleConfig,
+  getPaymentMethodsForCurrency,
+  type CurrencyCode,
+  type LocaleCode,
+} from "@/i18n/config";
 
 export const runtime = "nodejs";
 
@@ -8,9 +15,8 @@ type CheckoutBody = {
   amount: number;
   currency: CurrencyCode;
   frequency: "once" | "monthly";
-  name?: string;
-  email?: string;
-  locale?: string;
+  locale?: LocaleCode;
+  country?: string;
 };
 
 // Stable, friendly product name per locale
@@ -39,7 +45,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_body" }, { status: 400 });
   }
 
-  const { amount, currency, frequency, name, email, locale } = body;
+  const { amount, currency, frequency, locale, country } = body;
 
   if (typeof amount !== "number" || amount <= 0) {
     return NextResponse.json({ error: "invalid_amount" }, { status: 400 });
@@ -60,13 +66,42 @@ export async function POST(req: Request) {
       amount,
       currency,
       frequency,
+      paymentMethods: getPaymentMethodsForCurrency(currency),
     });
   }
 
   try {
+    // Build the payment method list aligned with the donor's currency.
+    // Card is always included; local methods are filtered by Stripe itself
+    // based on currency compatibility, so we pass the full relevant set.
+    const paymentMethods = getPaymentMethodsForCurrency(currency);
+    const localeConfig = locale ? getLocaleConfig(locale) : null;
+    const stripeLocale = (localeConfig?.stripeLocale ?? "pt") as
+      | "pt"
+      | "pt-BR"
+      | "en"
+      | "en-GB"
+      | "es"
+      | "fr"
+      | "de"
+      | "it";
+
+    // Stripe Checkout `payment_method_types` accepts a curated list.
+    // We pass "card" + the locally-relevant methods; Stripe ignores any
+    // that aren't compatible with the currency.
+    const pmTypes = Array.from(
+      new Set(paymentMethods.map((m) => m.type))
+    );
+
     const session = await stripe.checkout.sessions.create({
       mode: frequency === "monthly" ? "subscription" : "payment",
-      payment_method_types: ["card"],
+      // When passing an array of payment_method_types, Stripe Checkout
+      // shows a payment-method picker and only renders methods that
+      // support the given currency.
+      payment_method_types: pmTypes as Stripe.Checkout.SessionCreateParams.PaymentMethodType[],
+      payment_method_options: {
+        card: { setup_future_usage: "on_session" },
+      },
       line_items: [
         {
           price_data: {
@@ -84,19 +119,26 @@ export async function POST(req: Request) {
           quantity: 1,
         },
       ],
-      customer_email: email || undefined,
+      // Email + name are collected inside Stripe Checkout so the donor
+      // never types them on our page.
       client_reference_id: `twf_${Date.now()}`,
       metadata: {
-        donor_name: name || "",
-        donor_email: email || "",
         frequency,
         locale: locale || "",
+        country: country || "",
+        currency,
       },
       success_url: `${req.headers.get("origin") ?? ""}/?donation=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${req.headers.get("origin") ?? ""}/?donation=cancelled`,
       billing_address_collection: "auto",
+      // Collect the donor's name + email on the Stripe Checkout page.
+      customer_creation: frequency === "monthly" ? "always" : "always",
       allow_promotion_codes: true,
-      locale: (locale?.slice(0, 2) as "pt" | "en" | "es" | "fr" | "de" | "it") || "pt",
+      locale: stripeLocale,
+      // Surface relevant wallets/methods aligned with the currency.
+      ...(currency === "EUR"
+        ? { payment_method_configuration: "pm_eu" }
+        : {}),
     });
 
     return NextResponse.json({
@@ -106,6 +148,7 @@ export async function POST(req: Request) {
       amount,
       currency,
       frequency,
+      paymentMethods,
     });
   } catch (err) {
     console.error("[checkout] stripe error:", err);

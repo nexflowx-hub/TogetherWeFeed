@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShieldCheck, Lock, X, Check, Loader2, Sparkles } from "lucide-react";
+import { ShieldCheck, Lock, X, Loader2, Sparkles, CreditCard } from "lucide-react";
 import { DONATION_OPTIONS, useDonate } from "./donate-provider";
 import { useLocale } from "@/i18n/locale-provider";
 
@@ -14,15 +14,14 @@ type CheckoutResponse = {
   amount: number;
   currency: string;
   frequency: Frequency;
+  paymentMethods?: { type: string; label: string; note?: string }[];
   error?: string;
 };
 
 export function CheckoutDialog() {
   const { selected, selectedId, select, checkoutOpen, closeCheckout, price, label } = useDonate();
-  const { messages, currency, presets, formatPrice, locale } = useLocale();
+  const { messages, currency, country, locale, presets, formatPrice, paymentMethods } = useLocale();
   const [frequency, setFrequency] = useState<Frequency>("once");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "redirect" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -64,9 +63,8 @@ export function CheckoutDialog() {
           amount: price,
           currency,
           frequency,
-          name,
-          email,
           locale,
+          country,
         }),
       });
 
@@ -96,14 +94,14 @@ export function CheckoutDialog() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-navy-deep/60 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-navy-deep/60 p-0 backdrop-blur-sm sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-label={m.title}
       onClick={closeCheckout}
     >
       <div
-        className="twf-scroll-area relative max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-6 shadow-2xl sm:rounded-3xl sm:p-8"
+        className="twf-scroll-area relative max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-8"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -118,7 +116,7 @@ export function CheckoutDialog() {
         {status === "success" ? (
           <div className="flex flex-col items-center gap-4 py-8 text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-grass/15 text-grass">
-              <Check className="h-8 w-8" strokeWidth={3} />
+              <ShieldCheck className="h-8 w-8" strokeWidth={3} />
             </div>
             <h3 className="font-display text-2xl font-extrabold text-navy-deep">
               {m.successTitle}
@@ -128,13 +126,8 @@ export function CheckoutDialog() {
               {frequency === "monthly"
                 ? `· ${messages.donate.monthly}`
                 : `· ${messages.donate.oneTime}`}
-              {" — "}
-              {m.demoNote}
             </p>
-            <p className="text-sm text-slate-500">
-              {name ? `${name}, ` : ""}
-              {messages.banner.sub}
-            </p>
+            <p className="text-sm text-slate-500">{messages.banner.sub}</p>
             <button type="button" onClick={closeCheckout} className="twf-btn-green mt-2">
               {m.successClose}
             </button>
@@ -166,7 +159,9 @@ export function CheckoutDialog() {
                   {label}
                 </span>
                 <span className="text-sm text-slate-500">
-                  {frequency === "monthly" ? `/${messages.donate.monthly.toLowerCase()}` : `· ${messages.donate.oneTime}`}
+                  {frequency === "monthly"
+                    ? `· ${messages.donate.monthly}`
+                    : `· ${messages.donate.oneTime}`}
                 </span>
               </div>
               <p className="mt-2 text-sm text-slate-600">
@@ -189,7 +184,7 @@ export function CheckoutDialog() {
                   aria-pressed={frequency === opt.id}
                   onClick={() => setFrequency(opt.id)}
                   className={
-                    "rounded-full px-4 py-2 text-sm font-bold transition-all " +
+                    "rounded-full px-4 py-2.5 text-sm font-bold transition-all " +
                     (frequency === opt.id
                       ? "bg-white text-navy-deep shadow"
                       : "text-slate-500 hover:text-navy-deep")
@@ -216,7 +211,7 @@ export function CheckoutDialog() {
                       onClick={() => select(opt.id)}
                       aria-pressed={active}
                       className={
-                        "rounded-xl border-2 px-2 py-2.5 text-sm font-bold transition-all " +
+                        "min-h-[44px] rounded-xl border-2 px-2 py-2.5 text-sm font-bold transition-all " +
                         (active
                           ? "border-grass bg-grass text-white"
                           : "border-sky-soft bg-white text-navy-deep hover:border-grass/40")
@@ -229,47 +224,31 @@ export function CheckoutDialog() {
               </div>
             </div>
 
+            {/* Payment methods aligned with currency */}
+            <div className="mb-5">
+              <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                <CreditCard className="h-3.5 w-3.5" aria-hidden="true" />
+                {currency} · {paymentMethods.length} métodos
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {paymentMethods.map((pm) => (
+                  <span
+                    key={pm.type}
+                    className="rounded-lg bg-sky-soft px-2.5 py-1.5 text-[11px] font-semibold text-navy-deep"
+                    title={pm.note ? `${pm.label} (${pm.note})` : pm.label}
+                  >
+                    {pm.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-5 flex items-center gap-2 rounded-xl bg-mint-soft px-3 py-2.5 text-xs text-grass-dark">
+              <ShieldCheck className="h-4 w-4 shrink-0" />
+              <span>{m.secure}</span>
+            </div>
+
             <form className="space-y-3" onSubmit={handleCheckout}>
-              <div>
-                <label
-                  htmlFor="donor-name"
-                  className="mb-1 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500"
-                >
-                  {m.name}
-                </label>
-                <input
-                  id="donor-name"
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder={m.namePlaceholder}
-                  className="w-full rounded-xl border border-sky-soft bg-white px-4 py-2.5 text-sm text-navy-deep outline-none transition focus:border-grass focus:ring-2 focus:ring-grass/30"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="donor-email"
-                  className="mb-1 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500"
-                >
-                  {m.email}
-                </label>
-                <input
-                  id="donor-email"
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder={m.emailPlaceholder}
-                  className="w-full rounded-xl border border-sky-soft bg-white px-4 py-2.5 text-sm text-navy-deep outline-none transition focus:border-grass focus:ring-2 focus:ring-grass/30"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 rounded-xl bg-mint-soft px-3 py-2 text-xs text-grass-dark">
-                <ShieldCheck className="h-4 w-4 shrink-0" />
-                <span>{m.secure}</span>
-              </div>
-
               {status === "error" && (
                 <div className="rounded-xl bg-rose-warn/10 px-3 py-2 text-xs text-rose-warn">
                   {errorMsg}
@@ -289,7 +268,6 @@ export function CheckoutDialog() {
                 {m.donate} {label}
                 {frequency === "monthly" ? ` · ${messages.donate.monthly}` : ""}
               </button>
-              <p className="text-center text-xs text-slate-400">{m.demoNote}</p>
             </form>
           </>
         )}

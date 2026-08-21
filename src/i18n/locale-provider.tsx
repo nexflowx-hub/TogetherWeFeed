@@ -17,9 +17,14 @@ import {
   CURRENCY_STORAGE_KEY,
   LOCALE_COOKIE,
   LOCALE_STORAGE_KEY,
+  COUNTRY_COOKIE,
+  COUNTRY_STORAGE_KEY,
   ALL_LOCALES,
   ALL_CURRENCIES,
   getLocaleConfig,
+  getCurrencyForCountry,
+  getLocaleForCountry,
+  getPaymentMethodsForCurrency,
   type CurrencyCode,
   type LocaleCode,
 } from "./config";
@@ -28,13 +33,16 @@ import { MESSAGES, type Messages } from "./messages";
 type LocaleContextValue = {
   locale: LocaleCode;
   currency: CurrencyCode;
+  country: string | null;
   messages: Messages;
   setLocale: (code: LocaleCode) => void;
   setCurrency: (code: CurrencyCode) => void;
   formatPrice: (amount: number, opts?: { compact?: boolean }) => string;
   convertFromEur: (eur: number) => number;
-  // Preset donation amounts in the active currency
   presets: number[];
+  paymentMethods: ReturnType<typeof getPaymentMethodsForCurrency>;
+  /** Apply the geo-detected locale/currency (only if user hasn't chosen) */
+  applyGeo: (country: string | null) => void;
 };
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
@@ -59,11 +67,28 @@ function readStored<T extends string>(
       const v = decodeURIComponent(match.split("=")[1]);
       if ((valid as string[]).includes(v)) return v as T;
     }
-    // Browser language hint
-    const nav = navigator.language as T;
-    if (nav && (valid as string[]).includes(nav)) return nav;
+    // Browser language hint (only for locale)
+    if (storageKey === LOCALE_STORAGE_KEY) {
+      const nav = navigator.language as T;
+      if (nav && (valid as string[]).includes(nav)) return nav;
+    }
   }
   return fallback;
+}
+
+function readStoredCountry(): string | null {
+  if (typeof document === "undefined") return null;
+  try {
+    const stored = localStorage.getItem(COUNTRY_STORAGE_KEY);
+    if (stored) return stored;
+  } catch {
+    // ignore
+  }
+  const match = document.cookie
+    .split("; ")
+    .find((c) => c.startsWith(`${COUNTRY_COOKIE}=`));
+  if (match) return decodeURIComponent(match.split("=")[1]);
+  return null;
 }
 
 function persist(storageKey: string, cookieName: string, value: string) {
@@ -73,7 +98,6 @@ function persist(storageKey: string, cookieName: string, value: string) {
   } catch {
     // ignore
   }
-  // 1 year cookie so server can read initial locale
   const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
   document.cookie = `${cookieName}=${encodeURIComponent(
     value
@@ -83,11 +107,41 @@ function persist(storageKey: string, cookieName: string, value: string) {
 const ALL_LOCALES_LIST = ALL_LOCALES;
 const ALL_CURRENCIES_LIST = ALL_CURRENCIES;
 
+/** Track whether the user has manually chosen a locale/currency. */
+function hasUserChosenLocale(): boolean {
+  if (typeof document === "undefined") return false;
+  try {
+    return localStorage.getItem("twf-locale-chosen") === "1";
+  } catch {
+    return false;
+  }
+}
+function markLocaleChosen() {
+  if (typeof document === "undefined") return;
+  try {
+    localStorage.setItem("twf-locale-chosen", "1");
+  } catch {
+    // ignore
+  }
+}
+function hasUserChosenCurrency(): boolean {
+  if (typeof document === "undefined") return false;
+  try {
+    return localStorage.getItem("twf-currency-chosen") === "1";
+  } catch {
+    return false;
+  }
+}
+function markCurrencyChosen() {
+  if (typeof document === "undefined") return;
+  try {
+    localStorage.setItem("twf-currency-chosen", "1");
+  } catch {
+    // ignore
+  }
+}
+
 export function LocaleProvider({ children }: { children: ReactNode }) {
-  // Lazy initialisation reads from localStorage/cookie/browser on the client's
-  // very first render — avoids setState-in-effect and the resulting hydration
-  // flash. SSR renders with defaults (safe because the tree is wrapped with
-  // suppressHydrationWarning and strings resolve to defaults server-side).
   const [locale, setLocaleState] = useState<LocaleCode>(() =>
     readStored<LocaleCode>(
       LOCALE_STORAGE_KEY,
@@ -112,6 +166,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     const localeDefault = getLocaleConfig(loc).defaultCurrency;
     return cur === DEFAULT_CURRENCY && cur !== localeDefault ? localeDefault : cur;
   });
+  const [country, setCountry] = useState<string | null>(() => readStoredCountry());
 
   // Keep <html lang> in sync for SEO/accessibility
   useEffect(() => {
@@ -120,19 +175,48 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     }
   }, [locale]);
 
+  // Geo-detect on first mount (only if user hasn't manually chosen).
+  useEffect(() => {
+    if (hasUserChosenLocale() && hasUserChosenCurrency()) return;
+    let cancelled = false;
+    fetch("/api/geo", { cache: "force-cache" })
+      .then((r) => r.json())
+      .then((data: { country?: string | null }) => {
+        if (cancelled || !data.country) return;
+        setCountry(data.country);
+        persist(COUNTRY_STORAGE_KEY, COUNTRY_COOKIE, data.country);
+
+        if (!hasUserChosenLocale()) {
+          const geoLocale = getLocaleForCountry(data.country);
+          if (geoLocale !== locale) setLocaleState(geoLocale);
+        }
+        if (!hasUserChosenCurrency()) {
+          const geoCurrency = getCurrencyForCountry(data.country);
+          if (geoCurrency !== currency) {
+            setCurrencyState(geoCurrency);
+            persist(CURRENCY_STORAGE_KEY, CURRENCY_COOKIE, geoCurrency);
+          }
+        }
+      })
+      .catch(() => {
+        // Geo-detection is best-effort; ignore failures
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const setLocale = useCallback((code: LocaleCode) => {
+    markLocaleChosen();
     setLocaleState(code);
     persist(LOCALE_STORAGE_KEY, LOCALE_COOKIE, code);
-    // Auto-switch currency to the locale's default if the user hasn't
-    // manually chosen a currency that differs from the previous locale's default.
     const newDefault = getLocaleConfig(code).defaultCurrency;
     setCurrencyState((prev) => {
-      // Only auto-switch if the previous currency was a EUR default-ish scenario
       const prevDefault = getLocaleConfig(
         ALL_LOCALES.find((l) => getLocaleConfig(l).defaultCurrency === prev) ??
           DEFAULT_LOCALE
       ).defaultCurrency;
-      if (prev === prevDefault) {
+      if (prev === prevDefault && !hasUserChosenCurrency()) {
         persist(CURRENCY_STORAGE_KEY, CURRENCY_COOKIE, newDefault);
         return newDefault;
       }
@@ -141,12 +225,32 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setCurrency = useCallback((code: CurrencyCode) => {
+    markCurrencyChosen();
     setCurrencyState(code);
     persist(CURRENCY_STORAGE_KEY, CURRENCY_COOKIE, code);
   }, []);
 
-  const messages = useMemo(() => MESSAGES[locale] ?? MESSAGES[DEFAULT_LOCALE], [locale]);
+  const applyGeo = useCallback(
+    (geoCountry: string | null) => {
+      if (!geoCountry) return;
+      setCountry(geoCountry);
+      persist(COUNTRY_STORAGE_KEY, COUNTRY_COOKIE, geoCountry);
+      if (!hasUserChosenLocale()) {
+        const geoLocale = getLocaleForCountry(geoCountry);
+        if (geoLocale !== locale) setLocaleState(geoLocale);
+      }
+      if (!hasUserChosenCurrency()) {
+        const geoCurrency = getCurrencyForCountry(geoCountry);
+        if (geoCurrency !== currency) {
+          setCurrencyState(geoCurrency);
+          persist(CURRENCY_STORAGE_KEY, CURRENCY_COOKIE, geoCurrency);
+        }
+      }
+    },
+    [locale, currency]
+  );
 
+  const messages = useMemo(() => MESSAGES[locale] ?? MESSAGES[DEFAULT_LOCALE], [locale]);
   const currencyConfig = useMemo(() => CURRENCIES[currency] ?? CURRENCIES.EUR, [currency]);
 
   const convertFromEur = useCallback(
@@ -161,11 +265,10 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
         const formatted = new Intl.NumberFormat(locale, {
           style: "currency",
           currency: code,
-          minimumFractionDigits: code === "BRL" ? 0 : 0,
-          maximumFractionDigits: code === "BRL" ? 0 : 0,
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
           notation: opts?.compact ? "compact" : "standard",
         }).format(amount);
-        // Ensure symbol readability for BRL / CHF
         if (code === "BRL") return `R$ ${amount.toLocaleString("pt-BR")}`;
         if (code === "CHF") return `${amount} CHF`;
         return formatted;
@@ -176,22 +279,28 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     [currencyConfig, locale]
   );
 
+  const paymentMethods = useMemo(
+    () => getPaymentMethodsForCurrency(currency),
+    [currency]
+  );
+
   const value = useMemo<LocaleContextValue>(
     () => ({
       locale,
       currency,
+      country,
       messages,
       setLocale,
       setCurrency,
       formatPrice,
       convertFromEur,
       presets: currencyConfig.presets,
+      paymentMethods,
+      applyGeo,
     }),
-    [locale, currency, messages, setLocale, setCurrency, formatPrice, convertFromEur, currencyConfig.presets]
+    [locale, currency, country, messages, setLocale, setCurrency, formatPrice, convertFromEur, currencyConfig.presets, paymentMethods, applyGeo]
   );
 
-  // Mark hydration boundary (lazy-init already ensures client/server agree
-  // on the first paint, but we keep a marker for debugging).
   return (
     <LocaleContext.Provider value={value}>
       <span suppressHydrationWarning data-twf-locale={locale} hidden />
@@ -229,4 +338,13 @@ export function readCurrencyFromCookie(cookieHeader: string | null): CurrencyCod
     if ((ALL_CURRENCIES_LIST as string[]).includes(v)) return v;
   }
   return DEFAULT_CURRENCY;
+}
+
+export function readCountryFromCookie(cookieHeader: string | null): string | null {
+  if (!cookieHeader) return null;
+  const match = cookieHeader
+    .split("; ")
+    .find((c) => c.startsWith(`${COUNTRY_COOKIE}=`));
+  if (match) return decodeURIComponent(match.split("=")[1]);
+  return null;
 }

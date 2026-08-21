@@ -254,4 +254,69 @@
 
 html {
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Safe area insets for notched devices (iPhone, etc.) */
+@supports (padding: max(0px)) {
+  .twf-safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+  .twf-safe-top {
+    padding-top: max(env(safe-area-inset-top), 0px);
+  }
+  .twf-safe-x {
+    padding-left: max(env(safe-area-inset-left), 0px);
+    padding-right: max(env(safe-area-inset-right), 0px);
+  }
+}
+
+/* Larger touch targets on small screens */
+@media (max-width: 640px) {
+  .twf-btn-green,
+  .twf-btn-green-lg,
+  .twf-btn-navy {
+    min-height: 48px;
+    min-width: 48px;
+  }
+  .twf-donate-card {
+    min-height: 96px;
+  }
+}
+
+/* Prevent horizontal overflow on small screens */
+body {
+  overflow-x: hidden;
+}
+
+/* Tap highlight colour */
+button, a {
+  -webkit-tap-highlight-color: rgba(22, 163, 74, 0.18);
+}
+
+/* Improved focus visible for keyboard users */
+:focus-visible {
+  outline-offset: 2px;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .twf-progress-stripes,
+  .twf-live-dot {
+    animation: none !important;
+  }
+}
+
+/* Sticky header offset for anchor navigation */
+section[id] {
+  scroll-margin-top: 80px;
 }

@@ -73,16 +73,10 @@ export type Messages = {
     oneTime: string;
     monthly: string;
     chooseOther: string;
-    name: string;
-    namePlaceholder: string;
-    email: string;
-    emailPlaceholder: string;
     secure: string;
     donate: string;
-    demoNote: string;
     close: string;
     successTitle: string;
-    successBody: string;
     successClose: string;
   };
   funnel: {
@@ -200,16 +194,10 @@ const pt: Messages = {
     oneTime: "Único",
     monthly: "Mensal",
     chooseOther: "Escolher outro valor",
-    name: "Nome",
-    namePlaceholder: "O seu nome",
-    email: "Email",
-    emailPlaceholder: "o.seu@email.com",
     secure: "Pagamento encriptado e seguro. Receberá um recibo por email.",
     donate: "Doar",
-    demoNote: "Demonstração — nenhum pagamento real é processado",
     close: "Fechar",
     successTitle: "Obrigado por ajudar! 🐾",
-    successBody: "A sua doação foi registada. Este é um clone para análise — nenhum pagamento real foi processado.",
     successClose: "Fechar",
   },
   funnel: {
@@ -326,16 +314,10 @@ const en: Messages = {
     oneTime: "One-time",
     monthly: "Monthly",
     chooseOther: "Choose another amount",
-    name: "Name",
-    namePlaceholder: "Your name",
-    email: "Email",
-    emailPlaceholder: "your@email.com",
     secure: "Encrypted and secure payment. You will receive a receipt by email.",
     donate: "Donate",
-    demoNote: "Demo — no real payment is processed",
     close: "Close",
     successTitle: "Thank you for helping! 🐾",
-    successBody: "Your donation has been registered. This is a clone for analysis — no real payment was processed.",
     successClose: "Close",
   },
   funnel: {
@@ -452,16 +434,10 @@ const es: Messages = {
     oneTime: "Única",
     monthly: "Mensual",
     chooseOther: "Elegir otro importe",
-    name: "Nombre",
-    namePlaceholder: "Tu nombre",
-    email: "Email",
-    emailPlaceholder: "tu@email.com",
     secure: "Pago cifrado y seguro. Recibirás un recibo por email.",
     donate: "Donar",
-    demoNote: "Demo — no se procesa ningún pago real",
     close: "Cerrar",
     successTitle: "¡Gracias por ayudar! 🐾",
-    successBody: "Tu donación ha sido registrada. Este es un clon para análisis — no se procesó ningún pago real.",
     successClose: "Cerrar",
   },
   funnel: {
@@ -578,16 +554,10 @@ const fr: Messages = {
     oneTime: "Unique",
     monthly: "Mensuel",
     chooseOther: "Choisir un autre montant",
-    name: "Nom",
-    namePlaceholder: "Votre nom",
-    email: "Email",
-    emailPlaceholder: "votre@email.com",
     secure: "Paiement chiffré et sécurisé. Vous recevrez un reçu par email.",
     donate: "Donner",
-    demoNote: "Démo — aucun paiement réel n'est traité",
     close: "Fermer",
     successTitle: "Merci pour votre aide ! 🐾",
-    successBody: "Votre don a été enregistré. Ceci est un clone pour analyse — aucun paiement réel n'a été traité.",
     successClose: "Fermer",
   },
   funnel: {
@@ -704,16 +674,10 @@ const de: Messages = {
     oneTime: "Einmalig",
     monthly: "Monatlich",
     chooseOther: "Anderen Betrag wählen",
-    name: "Name",
-    namePlaceholder: "Ihr Name",
-    email: "Email",
-    emailPlaceholder: "ihr@email.com",
     secure: "Verschlüsselte und sichere Zahlung. Sie erhalten eine Quittung per Email.",
     donate: "Spenden",
-    demoNote: "Demo — keine echte Zahlung wird verarbeitet",
     close: "Schließen",
     successTitle: "Danke für Ihre Hilfe! 🐾",
-    successBody: "Ihre Spende wurde registriert. Dies ist ein Klon zur Analyse — keine echte Zahlung wurde verarbeitet.",
     successClose: "Schließen",
   },
   funnel: {
@@ -830,16 +794,10 @@ const it: Messages = {
     oneTime: "Unica",
     monthly: "Mensile",
     chooseOther: "Scegli un altro importo",
-    name: "Nome",
-    namePlaceholder: "Il tuo nome",
-    email: "Email",
-    emailPlaceholder: "tua@email.com",
     secure: "Pagamento cifrato e sicuro. Riceverai una ricevuta via email.",
     donate: "Dona",
-    demoNote: "Demo — nessun pagamento reale viene processato",
     close: "Chiudi",
     successTitle: "Grazie per il tuo aiuto! 🐾",
-    successBody: "La tua donazione è stata registrata. Questo è un clone per analisi — nessun pagamento reale è stato processato.",
     successClose: "Chiudi",
   },
   funnel: {

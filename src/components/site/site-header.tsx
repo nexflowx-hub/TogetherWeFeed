@@ -29,7 +29,7 @@ export function SiteHeader() {
   return (
     <header
       className={
-        "fixed inset-x-0 top-0 z-50 transition-all duration-300 " +
+        "fixed inset-x-0 top-0 z-50 transition-all duration-300 twf-safe-top twf-safe-x " +
         (scrolled ? "bg-white/95 shadow-md backdrop-blur" : "bg-transparent")
       }
     >

@@ -1,4 +1,4 @@
-// Server-side helpers that read locale/currency from the request cookies
+// Server-side helpers that read locale/currency/country from the request cookies
 // without importing any client ("use client") module.
 
 import {
@@ -8,6 +8,7 @@ import {
   type CurrencyCode,
   DEFAULT_CURRENCY,
   CURRENCY_COOKIE,
+  COUNTRY_COOKIE,
   ALL_LOCALES,
   ALL_CURRENCIES,
 } from "./config";
@@ -39,3 +40,17 @@ export function readCurrencyFromCookieSafe(
   }
   return DEFAULT_CURRENCY;
 }
+
+export function readCountryFromCookieSafe(
+  cookieHeader: string | null | undefined
+): string | null {
+  if (!cookieHeader) return null;
+  const match = cookieHeader
+    .split("; ")
+    .find((c) => c.startsWith(`${COUNTRY_COOKIE}=`));
+  if (match) {
+    return decodeURIComponent(match.split("=")[1]);
+  }
+  return null;
+}
+
