@@ -2,44 +2,21 @@
 
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
-
-type Faq = { q: string; a: string };
-
-const FAQS: Faq[] = [
-  {
-    q: "Como são utilizados os donativos?",
-    a: "Os donativos financiam a alimentação, cuidados veterinários, medicamentos, tratamentos e as despesas básicas do abrigo. Cada valor recebido ajuda diretamente os mais de 500 animais resgatados.",
-  },
-  {
-    q: "Quem mantém e administra o abrigo?",
-    a: "O abrigo é mantido por donativos e administrado pela Luana e por uma equipa dedicada de voluntários e colaboradores, que trabalham todos os dias para garantir o bem-estar dos animais.",
-  },
-  {
-    q: "Os donativos fazem realmente a diferença?",
-    a: "Sim. Cada contribuição, por mais pequena que pareça, ajuda a manter o abrigo a funcionar — desde a ração diária aos cuidados veterinários. Já salvámos mais de 4.500 vidas graças ao apoio de pessoas como você.",
-  },
-  {
-    q: "Os donativos são seguros?",
-    a: "Sim. O pagamento é processado por plataforma segura e auditada, com os mesmos padrões de qualquer compra online.",
-  },
-  {
-    q: "Como acompanho o impacto do meu donativo?",
-    a: "Publicamos atualizações com frequência nas redes sociais e no site, mostrando melhorias, conquistas e histórias reais dos animais beneficiados. Transparência e gratidão são pilares da nossa missão.",
-  },
-];
+import { useLocale } from "@/i18n/locale-provider";
 
 export function FaqSection() {
+  const { messages } = useLocale();
   const [open, setOpen] = useState(0);
 
   return (
     <section id="faq" className="bg-sky-soft py-14 sm:py-20">
       <div className="twf-container">
         <h2 className="twf-section-title text-center text-navy-deep">
-          Perguntas frequentes 🩵
+          {messages.faq.title}
         </h2>
 
         <div className="mx-auto mt-10 max-w-3xl space-y-3">
-          {FAQS.map((item, i) => {
+          {messages.faq.items.map((item, i) => {
             const isOpen = open === i;
             return (
               <article
@@ -71,9 +48,7 @@ export function FaqSection() {
                   id={`faq-panel-${i}`}
                   className={
                     "grid transition-all duration-300 ease-out " +
-                    (isOpen
-                      ? "grid-rows-[1fr] opacity-100"
-                      : "grid-rows-[0fr] opacity-0")
+                    (isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0")
                   }
                 >
                   <div className="overflow-hidden">

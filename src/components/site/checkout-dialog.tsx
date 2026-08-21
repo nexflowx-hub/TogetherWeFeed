@@ -1,33 +1,43 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShieldCheck, Lock, X, Check } from "lucide-react";
+import { ShieldCheck, Lock, X, Check, Loader2, Sparkles } from "lucide-react";
 import { DONATION_OPTIONS, useDonate } from "./donate-provider";
+import { useLocale } from "@/i18n/locale-provider";
 
 type Frequency = "once" | "monthly";
 
+type CheckoutResponse = {
+  mode: "demo" | "live";
+  sessionId: string;
+  url: string | null;
+  amount: number;
+  currency: string;
+  frequency: Frequency;
+  error?: string;
+};
+
 export function CheckoutDialog() {
-  const { selected, checkoutOpen, closeCheckout, select } = useDonate();
+  const { selected, selectedId, select, checkoutOpen, closeCheckout, price, label } = useDonate();
+  const { messages, currency, presets, formatPrice, locale } = useLocale();
   const [frequency, setFrequency] = useState<Frequency>("once");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "redirect" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
 
-  // Reset the success screen whenever the dialog re-opens or the
-  // selected amount changes. Implemented as derived-state-during-render
-  // (the React-recommended pattern) to avoid setState inside an effect.
+  // Derived-state-during-render pattern (avoids setState in effect).
   const [prevOpen, setPrevOpen] = useState(checkoutOpen);
-  const [prevAmount, setPrevAmount] = useState(selected.id);
-  if (
-    checkoutOpen !== prevOpen ||
-    selected.id !== prevAmount
-  ) {
+  const [prevSelected, setPrevSelected] = useState(selectedId);
+  if (checkoutOpen !== prevOpen || selectedId !== prevSelected) {
     setPrevOpen(checkoutOpen);
-    setPrevAmount(selected.id);
-    if (checkoutOpen) setSubmitted(false);
+    setPrevSelected(selectedId);
+    if (checkoutOpen) {
+      setStatus("idle");
+      setErrorMsg("");
+    }
   }
 
-  // Esc to close
   useEffect(() => {
     if (!checkoutOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -39,11 +49,49 @@ export function CheckoutDialog() {
 
   if (!checkoutOpen) return null;
 
-  const amount = selected.price;
+  const m = messages.checkout;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
+    setStatus("loading");
+    setErrorMsg("");
+
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: price,
+          currency,
+          frequency,
+          name,
+          email,
+          locale,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error || "checkout_failed");
+      }
+
+      const data = (await res.json()) as CheckoutResponse;
+
+      if (data.mode === "live" && data.url) {
+        setStatus("redirect");
+        // Brief delay so the user sees the confirmation before redirect
+        setTimeout(() => {
+          window.location.href = data.url!;
+        }, 600);
+        return;
+      }
+
+      // Demo mode — show success screen
+      setStatus("success");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "checkout_failed");
+      setStatus("error");
+    }
   };
 
   return (
@@ -51,64 +99,79 @@ export function CheckoutDialog() {
       className="fixed inset-0 z-50 flex items-end justify-center bg-navy-deep/60 backdrop-blur-sm sm:items-center"
       role="dialog"
       aria-modal="true"
-      aria-label="Concluir doação"
+      aria-label={m.title}
       onClick={closeCheckout}
     >
       <div
-        className="relative w-full max-w-lg max-h-[92vh] overflow-y-auto twf-scroll-area rounded-t-3xl bg-white p-6 shadow-2xl sm:rounded-3xl sm:p-8"
+        className="twf-scroll-area relative max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-6 shadow-2xl sm:rounded-3xl sm:p-8"
         onClick={(e) => e.stopPropagation()}
       >
         <button
           type="button"
           onClick={closeCheckout}
-          aria-label="Fechar"
+          aria-label={m.close}
           className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-sky-soft text-navy-deep transition hover:bg-sky-mid"
         >
           <X className="h-5 w-5" />
         </button>
 
-        {submitted ? (
+        {status === "success" ? (
           <div className="flex flex-col items-center gap-4 py-8 text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-grass/15 text-grass">
               <Check className="h-8 w-8" strokeWidth={3} />
             </div>
             <h3 className="font-display text-2xl font-extrabold text-navy-deep">
-              Obrigado por ajudar! 🐾
+              {m.successTitle}
             </h3>
             <p className="max-w-sm text-sm text-slate-600">
-              A sua doação de{" "}
-              <strong className="text-grass">{selected.label}</strong> foi
-              registada. Este é um clone para análise — nenhum pagamento real
-              foi processado.
+              <strong className="text-grass">{label}</strong>{" "}
+              {frequency === "monthly"
+                ? `· ${messages.donate.monthly}`
+                : `· ${messages.donate.oneTime}`}
+              {" — "}
+              {m.demoNote}
             </p>
             <p className="text-sm text-slate-500">
-              {name ? `Em nome de ${name}, ` : ""}obrigado por fazer parte desta
-              missão de amor. 💛
+              {name ? `${name}, ` : ""}
+              {messages.banner.sub}
             </p>
-            <button
-              type="button"
-              onClick={closeCheckout}
-              className="twf-btn-green mt-2"
-            >
-              Fechar
+            <button type="button" onClick={closeCheckout} className="twf-btn-green mt-2">
+              {m.successClose}
             </button>
+          </div>
+        ) : status === "redirect" ? (
+          <div className="flex flex-col items-center gap-4 py-12 text-center">
+            <Loader2 className="h-10 w-10 animate-spin text-grass" />
+            <h3 className="font-display text-xl font-bold text-navy-deep">
+              {messages.funnel.trustSecure}…
+            </h3>
+            <p className="text-sm text-slate-500">Stripe · {m.secure}</p>
           </div>
         ) : (
           <>
+            {/* Match campaign banner */}
+            <div className="mb-4 flex items-start gap-2 rounded-2xl bg-gradient-to-r from-grass/10 to-emerald-100 px-4 py-3 ring-1 ring-grass/20">
+              <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-grass" />
+              <p className="text-xs font-semibold text-grass-dark">
+                {messages.funnel.matchTitle} · {messages.funnel.matchBody}
+              </p>
+            </div>
+
             <div className="mb-5">
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-grass">
-                Estás a doar
+                {m.youAreDonating}
               </p>
               <div className="mt-1 flex items-baseline gap-2">
                 <span className="font-display text-4xl font-extrabold text-navy-deep">
-                  {selected.label}
+                  {label}
                 </span>
                 <span className="text-sm text-slate-500">
-                  {frequency === "monthly" ? "/ mês" : "pagamento único"}
+                  {frequency === "monthly" ? `/${messages.donate.monthly.toLowerCase()}` : `· ${messages.donate.oneTime}`}
                 </span>
               </div>
               <p className="mt-2 text-sm text-slate-600">
-                <span aria-hidden="true">🩵</span> {selected.impact}
+                <span aria-hidden="true">{selected.emoji}</span>{" "}
+                {messages.impacts.items[selected.impactKey]}
               </p>
             </div>
 
@@ -116,8 +179,8 @@ export function CheckoutDialog() {
             <div className="mb-5 grid grid-cols-2 gap-2 rounded-full bg-sky-soft p-1">
               {(
                 [
-                  { id: "once", label: "Único" },
-                  { id: "monthly", label: "Mensal" },
+                  { id: "once", label: m.oneTime },
+                  { id: "monthly", label: m.monthly },
                 ] as const
               ).map((opt) => (
                 <button
@@ -139,12 +202,13 @@ export function CheckoutDialog() {
 
             {/* Amount selector */}
             <div className="mb-5">
-              <p className="mb-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                Escolher outro valor
+              <p className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                {m.chooseOther}
               </p>
               <div className="grid grid-cols-3 gap-2">
-                {DONATION_OPTIONS.map((opt) => {
-                  const active = selected.id === opt.id;
+                {DONATION_OPTIONS.map((opt, idx) => {
+                  const active = selectedId === opt.id;
+                  const p = presets[idx] ?? opt.priceEur;
                   return (
                     <button
                       key={opt.id}
@@ -158,20 +222,20 @@ export function CheckoutDialog() {
                           : "border-sky-soft bg-white text-navy-deep hover:border-grass/40")
                       }
                     >
-                      {opt.label}
+                      {formatPrice(p)}
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            <form className="space-y-3" onSubmit={handleSubmit}>
+            <form className="space-y-3" onSubmit={handleCheckout}>
               <div>
                 <label
                   htmlFor="donor-name"
                   className="mb-1 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500"
                 >
-                  Nome
+                  {m.name}
                 </label>
                 <input
                   id="donor-name"
@@ -179,7 +243,7 @@ export function CheckoutDialog() {
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="O seu nome"
+                  placeholder={m.namePlaceholder}
                   className="w-full rounded-xl border border-sky-soft bg-white px-4 py-2.5 text-sm text-navy-deep outline-none transition focus:border-grass focus:ring-2 focus:ring-grass/30"
                 />
               </div>
@@ -188,7 +252,7 @@ export function CheckoutDialog() {
                   htmlFor="donor-email"
                   className="mb-1 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500"
                 >
-                  Email
+                  {m.email}
                 </label>
                 <input
                   id="donor-email"
@@ -196,26 +260,36 @@ export function CheckoutDialog() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="o.seu@email.com"
+                  placeholder={m.emailPlaceholder}
                   className="w-full rounded-xl border border-sky-soft bg-white px-4 py-2.5 text-sm text-navy-deep outline-none transition focus:border-grass focus:ring-2 focus:ring-grass/30"
                 />
               </div>
 
               <div className="flex items-center gap-2 rounded-xl bg-mint-soft px-3 py-2 text-xs text-grass-dark">
                 <ShieldCheck className="h-4 w-4 shrink-0" />
-                <span>
-                  Pagamento encriptado e seguro. Receberá um recibo por email.
-                </span>
+                <span>{m.secure}</span>
               </div>
 
-              <button type="submit" className="twf-btn-green-lg w-full">
-                <Lock className="mr-2 h-4 w-4" aria-hidden="true" />
-                Doar {selected.label}
-                {frequency === "monthly" ? " / mês" : ""}
+              {status === "error" && (
+                <div className="rounded-xl bg-rose-warn/10 px-3 py-2 text-xs text-rose-warn">
+                  {errorMsg}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={status === "loading"}
+                className="twf-btn-green-lg w-full disabled:opacity-60"
+              >
+                {status === "loading" ? (
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                ) : (
+                  <Lock className="mr-2 h-4 w-4" aria-hidden="true" />
+                )}
+                {m.donate} {label}
+                {frequency === "monthly" ? ` · ${messages.donate.monthly}` : ""}
               </button>
-              <p className="text-center text-xs text-slate-400">
-                Demonstração — nenhum pagamento real é processado
-              </p>
+              <p className="text-center text-xs text-slate-400">{m.demoNote}</p>
             </form>
           </>
         )}

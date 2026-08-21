@@ -1,34 +1,34 @@
+"use client";
+
 import Image from "next/image";
 import { Carousel } from "./carousel";
+import { useLocale } from "@/i18n/locale-provider";
 
 const STORIES = [
-  { src: "/media/images/historias-01.webp", alt: "História de resgate 1" },
-  { src: "/media/images/historias-02.webp", alt: "História de resgate 2" },
-  { src: "/media/images/historias-03.webp", alt: "História de resgate 3" },
-  { src: "/media/images/historias-04.webp", alt: "História de resgate 4" },
-  { src: "/media/images/historias-05.webp", alt: "História de resgate 5" },
-  { src: "/media/images/historias-06.webp", alt: "História de resgate 6" },
+  { src: "/media/images/historias-01.webp", alt: "Together We Feed" },
+  { src: "/media/images/historias-02.webp", alt: "Together We Feed" },
+  { src: "/media/images/historias-03.webp", alt: "Together We Feed" },
+  { src: "/media/images/historias-04.webp", alt: "Together We Feed" },
+  { src: "/media/images/historias-05.webp", alt: "Together We Feed" },
+  { src: "/media/images/historias-06.webp", alt: "Together We Feed" },
 ];
 
 export function StoriesCarousel() {
+  const { messages, locale } = useLocale();
   return (
     <section id="historias" className="bg-sun py-14 sm:py-20">
       <div className="twf-container">
         <h2 className="twf-section-title text-center text-white">
-          Histórias de Transformação
+          {messages.stories.title}
         </h2>
         <p className="mt-3 text-center text-base text-white/90 sm:text-lg">
-          Estas são algumas das centenas de animais que conseguimos resgatar e
-          reabilitar graças ao vosso apoio.
+          {messages.stories.subtitle}
         </p>
 
         <div className="mx-auto mt-10 max-w-4xl">
-          <Carousel autoplay={5000} ariaLabel="Histórias de resgate">
-            {STORIES.map((s) => (
-              <div
-                key={s.src}
-                className="overflow-hidden rounded-3xl shadow-2xl"
-              >
+          <Carousel autoplay={5000} ariaLabel={messages.stories.title}>
+            {STORIES.map((s, i) => (
+              <div key={s.src} className="overflow-hidden rounded-3xl shadow-2xl">
                 <Image
                   src={s.src}
                   alt={s.alt}
@@ -41,6 +41,7 @@ export function StoriesCarousel() {
             ))}
           </Carousel>
         </div>
+        <span className="sr-only">{locale}</span>
       </div>
     </section>
   );

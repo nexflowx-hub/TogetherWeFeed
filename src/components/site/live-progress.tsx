@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useLocale } from "@/i18n/locale-provider";
 
-const RAISED = 995;
-const TOTAL = 12494;
-const PERCENT = Math.round((RAISED / TOTAL) * 100);
+const RAISED_EUR = 995;
+const TOTAL_EUR = 12494;
 
 export function LiveProgress() {
+  const { messages, convertFromEur, formatPrice } = useLocale();
   const ref = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
-  const [bump, setBump] = useState(RAISED);
+  const [bump, setBump] = useState(RAISED_EUR);
 
   useEffect(() => {
     const el = ref.current;
@@ -27,7 +28,6 @@ export function LiveProgress() {
     return () => obs.disconnect();
   }, []);
 
-  // Simulate live activity: small bumps
   useEffect(() => {
     if (!visible) return;
     const id = setInterval(() => {
@@ -36,7 +36,9 @@ export function LiveProgress() {
     return () => clearInterval(id);
   }, [visible]);
 
-  const pct = Math.min(Math.round((bump / TOTAL) * 100), 100);
+  const raisedDisplay = convertFromEur(bump);
+  const totalDisplay = convertFromEur(TOTAL_EUR);
+  const pct = Math.min(Math.round((bump / TOTAL_EUR) * 100), 100);
 
   return (
     <section id="ao-vivo" className="bg-navy-deep py-12 text-white sm:py-16">
@@ -44,11 +46,13 @@ export function LiveProgress() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="inline-flex items-center gap-2 rounded-full bg-rose-warn/20 px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-rose-300">
             <span className="twf-live-dot block h-2 w-2 rounded-full bg-rose-warn" />
-            Em direto
+            {messages.live.badge}
           </span>
           <span className="text-sm text-white/80 sm:text-base">
-            <b className="font-display text-lg text-white sm:text-xl">{bump} €</b>{" "}
-            angariados este mês
+            <b className="font-display text-lg text-white sm:text-xl">
+              {formatPrice(raisedDisplay)}
+            </b>{" "}
+            {messages.live.raisedThisMonth}
           </span>
         </div>
 
@@ -58,7 +62,7 @@ export function LiveProgress() {
           aria-valuenow={pct}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-label={`${pct}% da meta angariada`}
+          aria-label={`${pct}% ${messages.live.ofGoal}`}
         >
           <div
             className="twf-progress-stripes h-full rounded-full bg-gradient-to-r from-grass to-emerald-400 transition-[width] duration-1000 ease-out"
@@ -67,9 +71,10 @@ export function LiveProgress() {
         </div>
 
         <div className="mt-3 flex items-center justify-between text-sm text-white/80">
-          <span>{pct}% da meta</span>
+          <span>{pct}% {messages.live.ofGoal}</span>
           <span>
-            Meta: <strong className="text-white">{TOTAL.toLocaleString("pt-PT")} €</strong>
+            {messages.live.goal}:{" "}
+            <strong className="text-white">{formatPrice(totalDisplay)}</strong>
           </span>
         </div>
       </div>

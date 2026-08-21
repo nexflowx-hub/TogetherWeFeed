@@ -1,6 +1,10 @@
+"use client";
+
 import Image from "next/image";
+import { useLocale } from "@/i18n/locale-provider";
 
 export function BannerCta() {
+  const { messages } = useLocale();
   return (
     <>
       <section aria-label="Together We Feed" className="bg-sky-soft">
@@ -17,11 +21,9 @@ export function BannerCta() {
       <section className="bg-sky-soft py-12 text-center sm:py-16">
         <div className="twf-container">
           <a href="#doar" className="twf-btn-green-lg">
-            Transformar uma vida
+            {messages.banner.cta}
           </a>
-          <p className="mt-4 text-base text-slate-600">
-            Toda a doação é um ato de amor 🐾
-          </p>
+          <p className="mt-4 text-base text-slate-600">{messages.banner.sub}</p>
         </div>
       </section>
     </>

@@ -3,16 +3,15 @@
 import { useEffect, useState } from "react";
 import { Heart } from "lucide-react";
 import { DONATION_OPTIONS, useDonate } from "./donate-provider";
+import { useLocale } from "@/i18n/locale-provider";
 
 export function StickyDonateBar() {
-  const { selected, select, openCheckout } = useDonate();
+  const { select, openCheckout, selectedId, label } = useDonate();
+  const { messages, presets, formatPrice } = useLocale();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => {
-      // Show after scrolling past the hero + video area (~700px)
-      setVisible(window.scrollY > 700);
-    };
+    const onScroll = () => setVisible(window.scrollY > 700);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
@@ -33,13 +32,14 @@ export function StickyDonateBar() {
               <Heart className="h-5 w-5 fill-current" aria-hidden="true" />
             </span>
             <span className="font-display text-sm font-bold text-navy-deep">
-              Doe agora
+              {messages.donate.donate}
             </span>
           </div>
 
-          <div className="flex flex-1 gap-1.5 overflow-x-auto twf-scroll-area">
-            {DONATION_OPTIONS.map((opt) => {
-              const active = selected.id === opt.id;
+          <div className="twf-scroll-area flex flex-1 gap-1.5 overflow-x-auto">
+            {DONATION_OPTIONS.map((opt, idx) => {
+              const active = selectedId === opt.id;
+              const price = presets[idx] ?? opt.priceEur;
               return (
                 <button
                   key={opt.id}
@@ -53,18 +53,14 @@ export function StickyDonateBar() {
                       : "bg-sky-soft text-navy-deep hover:bg-sky-mid")
                   }
                 >
-                  {opt.label}
+                  {formatPrice(price)}
                 </button>
               );
             })}
           </div>
 
-          <button
-            type="button"
-            onClick={openCheckout}
-            className="twf-btn-green shrink-0"
-          >
-            Doar {selected.label}
+          <button type="button" onClick={openCheckout} className="twf-btn-green shrink-0">
+            {messages.donate.donate} {label}
           </button>
         </div>
       </div>
