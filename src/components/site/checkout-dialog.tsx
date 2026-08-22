@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShieldCheck, Lock, X, Loader2, Sparkles, CreditCard } from "lucide-react";
+import { ShieldCheck, Lock, X, Loader2, Sparkles } from "lucide-react";
 import { DONATION_OPTIONS, useDonate } from "./donate-provider";
 import { useLocale } from "@/i18n/locale-provider";
 
@@ -14,13 +14,12 @@ type CheckoutResponse = {
   amount: number;
   currency: string;
   frequency: Frequency;
-  paymentMethods?: { type: string; label: string; note?: string }[];
   error?: string;
 };
 
 export function CheckoutDialog() {
   const { selected, selectedId, select, checkoutOpen, closeCheckout, price, label } = useDonate();
-  const { messages, currency, country, locale, presets, formatPrice, paymentMethods } = useLocale();
+  const { messages, currency, locale, presets, formatPrice } = useLocale();
   const [frequency, setFrequency] = useState<Frequency>("once");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "redirect" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
@@ -64,7 +63,6 @@ export function CheckoutDialog() {
           currency,
           frequency,
           locale,
-          country,
         }),
       });
 
@@ -221,25 +219,6 @@ export function CheckoutDialog() {
                     </button>
                   );
                 })}
-              </div>
-            </div>
-
-            {/* Payment methods aligned with currency */}
-            <div className="mb-5">
-              <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
-                <CreditCard className="h-3.5 w-3.5" aria-hidden="true" />
-                {currency} · {paymentMethods.length} métodos
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {paymentMethods.map((pm) => (
-                  <span
-                    key={pm.type}
-                    className="rounded-lg bg-sky-soft px-2.5 py-1.5 text-[11px] font-semibold text-navy-deep"
-                    title={pm.note ? `${pm.label} (${pm.note})` : pm.label}
-                  >
-                    {pm.label}
-                  </span>
-                ))}
               </div>
             </div>
 

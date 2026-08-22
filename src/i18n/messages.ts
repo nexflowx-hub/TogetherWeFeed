@@ -98,6 +98,13 @@ export type Messages = {
     trustTransparent: string;
     trustImpact: string;
   };
+  success: {
+    title: string;
+    headline: string;
+    body: string;
+    share: string;
+    close: string;
+  };
   switcher: { language: string; currency: string };
 };
 
@@ -220,6 +227,13 @@ const pt: Messages = {
     trustImpact: "Impacto real",
   },
   switcher: { language: "Idioma", currency: "Moeda" },
+  success: {
+    title: "Obrigado, herói! 🐾",
+    headline: "A sua doação foi recebida com todo o nosso carinho.",
+    body: "Cada euro que doou representa comida, cuidados veterinários e esperança para os animais que mais precisam. Somos profundamente gratos pelo seu apoio ao projeto Together We Feed — sem pessoas como você, este trabalho simplesmente não seria possível. Os nossos patudos vão dormir com a barriga cheia graças a si.",
+    share: "Partilhar esta causa",
+    close: "Fechar",
+  },
 };
 
 const en: Messages = {
@@ -340,6 +354,13 @@ const en: Messages = {
     trustImpact: "Real impact",
   },
   switcher: { language: "Language", currency: "Currency" },
+  success: {
+    title: "Thank you, hero! 🐾",
+    headline: "Your donation has been received with all our gratitude.",
+    body: "Every euro you donated represents food, veterinary care and hope for the animals who need it most. We are deeply grateful for your support of the Together We Feed project — without people like you, this work simply would not be possible. Our furry friends will go to sleep with full bellies thanks to you.",
+    share: "Share this cause",
+    close: "Close",
+  },
 };
 
 const es: Messages = {
@@ -460,6 +481,13 @@ const es: Messages = {
     trustImpact: "Impacto real",
   },
   switcher: { language: "Idioma", currency: "Moneda" },
+  success: {
+    title: "¡Gracias, héroe! 🐾",
+    headline: "Tu donación ha sido recibida con todo nuestro cariño.",
+    body: "Cada euro que donaste representa comida, cuidados veterinarios y esperanza para los animales que más lo necesitan. Estamos profundamente agradecidos por tu apoyo al proyecto Together We Feed — sin personas como tú, este trabajo simplemente no sería posible. Nuestros peludos se irán a dormir con la barriga llena gracias a ti.",
+    share: "Compartir esta causa",
+    close: "Cerrar",
+  },
 };
 
 const fr: Messages = {
@@ -580,6 +608,13 @@ const fr: Messages = {
     trustImpact: "Impact réel",
   },
   switcher: { language: "Langue", currency: "Devise" },
+  success: {
+    title: "Merci, héros ! 🐾",
+    headline: "Votre don a été reçu avec toute notre gratitude.",
+    body: "Chaque euro que vous avez donné représente de la nourriture, des soins vétérinaires et de l'espoir pour les animaux qui en ont le plus besoin. Nous sommes profondément reconnaissants pour votre soutien au projet Together We Feed — sans des personnes comme vous, ce travail ne serait tout simplement pas possible. Nos amis à quatre pattes s'endormiront le ventre plein grâce à vous.",
+    share: "Partager cette cause",
+    close: "Fermer",
+  },
 };
 
 const de: Messages = {
@@ -700,6 +735,13 @@ const de: Messages = {
     trustImpact: "Reale Wirkung",
   },
   switcher: { language: "Sprache", currency: "Währung" },
+  success: {
+    title: "Danke, Held! 🐾",
+    headline: "Ihre Spende wurde mit ganzer Dankbarkeit empfangen.",
+    body: "Jeder Euro, den Sie gespendet haben, steht für Futter, tierärztliche Versorgung und Hoffnung für die Tiere, die es am meisten brauchen. Wir sind zutiefst dankbar für Ihre Unterstützung des Projekts Together We Feed — ohne Menschen wie Sie wäre diese Arbeit einfach nicht möglich. Unsere pelzigen Freunde werden dank Ihnen mit vollem Bauch einschlafen.",
+    share: "Diese Sache teilen",
+    close: "Schließen",
+  },
 };
 
 const it: Messages = {
@@ -820,6 +862,13 @@ const it: Messages = {
     trustImpact: "Impatto reale",
   },
   switcher: { language: "Lingua", currency: "Valuta" },
+  success: {
+    title: "Grazie, eroe! 🐾",
+    headline: "La tua donazione è stata ricevuta con tutta la nostra gratitudine.",
+    body: "Ogni euro che hai donato rappresenta cibo, cure veterinarie e speranza per gli animali che ne hanno più bisogno. Siamo profondamente grati per il tuo sostegno al progetto Together We Feed — senza persone come te, questo lavoro semplicemente non sarebbe possibile. I nostri amici a quattro zampe andranno a dormire con la pancia piena grazie a te.",
+    share: "Condividi questa causa",
+    close: "Chiudi",
+  },
 };
 
 export const MESSAGES: Record<LocaleCode, Messages> = {

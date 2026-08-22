@@ -19,6 +19,7 @@ import { BannerCta } from "@/components/site/banner-cta";
 import { SiteFooter } from "@/components/site/site-footer";
 import { StickyDonateBar } from "@/components/site/sticky-donate-bar";
 import { CheckoutDialog } from "@/components/site/checkout-dialog";
+import { DonationSuccessBanner } from "@/components/site/donation-success-banner";
 import { ExitIntentModal } from "@/components/site/exit-intent-modal";
 import { SocialProofNotifications } from "@/components/site/social-proof-notifications";
 import { TrustBadges } from "@/components/site/trust-badges";
@@ -92,6 +93,7 @@ export default function Home() {
           <StickyDonateBar />
           <SocialProofNotifications />
           <CheckoutDialog />
+          <DonationSuccessBanner />
           <ExitIntentModal />
         </div>
       </DonateProvider>
