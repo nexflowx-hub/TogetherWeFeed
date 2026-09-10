@@ -1,6 +1,13 @@
-// Locale + currency configuration for Together We Feed
-// Base currency is EUR; each locale maps to a default currency but the
-// currency is independently switchable so donors always see familiar units.
+// Locale + currency configuration for Together We Feed.
+//
+// Payments are intentionally normalised to two merchant markets while the
+// project validates Brazil + Portugal/Europe:
+//   - Brazil -> BRL (PIX / card)
+//   - every other country, including all of Europe -> EUR
+//
+// Keeping only two active checkout currencies lets the server select one of
+// two XPayments Store API keys deterministically and avoids accidental
+// cross-store routing.
 
 export type CurrencyCode = "EUR" | "USD" | "GBP" | "BRL" | "CHF" | "CAD";
 
@@ -16,13 +23,11 @@ export type LocaleCode =
 
 export type LocaleConfig = {
   code: LocaleCode;
-  label: string; // native name
-  flag: string; // emoji flag
+  label: string;
+  flag: string;
   language: string;
   defaultCurrency: CurrencyCode;
-  /** ISO 3166-1 alpha-2 country code this locale primarily represents */
   country: string;
-  /** Stripe Checkout locale code */
   stripeLocale: string;
 };
 
@@ -30,83 +35,49 @@ export type CurrencyConfig = {
   code: CurrencyCode;
   symbol: string;
   label: string;
-  // Clean, donation-friendly preset amounts per currency (derived from EUR base)
   presets: number[];
-  // Approximate conversion rate from 1 EUR (for live goal display only)
   rateFromEur: number;
-  /** Countries whose default currency matches this */
   countries: string[];
 };
 
+export type PaymentMethodConfig = {
+  type: string;
+  label: string;
+  note?: string;
+  countries?: string[];
+};
+
 /**
- * Payment methods to enable per currency. Stripe supports these on Checkout
- * when the currency is compatible — we surface the most relevant ones based
- * on the donor's currency so the experience feels local.
- *
- * Reference: https://stripe.com/docs/payments/payment-methods/supported-currencies
+ * Payment methods supported by the Together We Feed checkout foundation.
+ * The EUR configuration prioritises the Portuguese methods first; callers
+ * should pass `country` so MB WAY/Multibanco are only promoted in Portugal.
  */
-export const PAYMENT_METHODS_BY_CURRENCY: Record<
-  CurrencyCode,
-  {
-    type: string;
-    label: string;
-    // Restrict to currencies/countries where the method is most relevant
-    note?: string;
-  }[]
-> = {
+export const PAYMENT_METHODS_BY_CURRENCY: Record<CurrencyCode, PaymentMethodConfig[]> = {
   EUR: [
-    { type: "card", label: "Visa · Mastercard · Amex" },
-    { type: "ideal", label: "iDEAL", note: "NL" },
-    { type: "bancontact", label: "Bancontact", note: "BE" },
-    { type: "sepa_debit", label: "SEPA Direct Debit" },
-    { type: "giropay", label: "giropay", note: "DE" },
-    { type: "sofort", label: "Sofort" },
-    { type: "paypal", label: "PayPal" },
-  ],
-  USD: [
-    { type: "card", label: "Visa · Mastercard · Amex" },
-    { type: "ach", label: "ACH Direct Debit" },
-    { type: "cashapp", label: "Cash App Pay" },
-    { type: "paypal", label: "PayPal" },
-    { type: "link", label: "Link" },
-  ],
-  GBP: [
-    { type: "card", label: "Visa · Mastercard · Amex" },
-    { type: "bacs_debit", label: "Bacs Direct Debit" },
-    { type: "bancontact", label: "Bancontact" },
-    { type: "paypal", label: "PayPal" },
+    { type: "mb_way", label: "MB WAY", countries: ["PT"] },
+    { type: "multibanco", label: "Multibanco", countries: ["PT"] },
+    { type: "card", label: "Cartão" },
   ],
   BRL: [
-    { type: "card", label: "Visa · Mastercard · Elo · Hipercard" },
-    { type: "boleto", label: "Boleto" },
-    { type: "pix", label: "Pix" },
+    { type: "pix", label: "PIX", countries: ["BR"] },
+    { type: "card", label: "Cartão" },
   ],
-  CHF: [
-    { type: "card", label: "Visa · Mastercard · Amex" },
-    { type: "sepa_debit", label: "SEPA Direct Debit" },
-    { type: "paypal", label: "PayPal" },
-  ],
-  CAD: [
-    { type: "card", label: "Visa · Mastercard · Amex" },
-    { type: "ach", label: "ACH Direct Debit" },
-    { type: "paypal", label: "PayPal" },
-  ],
+  USD: [{ type: "card", label: "Cartão" }],
+  GBP: [{ type: "card", label: "Cartão" }],
+  CHF: [{ type: "card", label: "Cartão" }],
+  CAD: [{ type: "card", label: "Cartão" }],
 };
 
-/** ISO country → default currency (used when geo-detecting the donor) */
+/**
+ * During the Brazil + Europe launch, every visitor outside Brazil defaults to
+ * EUR. This includes the whole of Europe and also gives donors from other
+ * countries a valid route through the EUR XPayments Store instead of a dead
+ * currency for which no API key exists.
+ */
 export const COUNTRY_TO_CURRENCY: Record<string, CurrencyCode> = {
-  // Eurozone
-  AT: "EUR", BE: "EUR", CY: "EUR", DE: "EUR", EE: "EUR", ES: "EUR",
-  FI: "EUR", FR: "EUR", GR: "EUR", IE: "EUR", IT: "EUR", LT: "EUR",
-  LU: "EUR", LV: "EUR", MT: "EUR", NL: "EUR", PT: "EUR", SK: "EUR",
-  SI: "EUR", HR: "EUR",
-  // UK / Americas
-  GB: "GBP", US: "USD", CA: "CAD", BR: "BRL", MX: "USD",
-  // Switzerland / Nordics (still EUR-friendly for donations)
-  CH: "CHF", NO: "EUR", SE: "EUR", DK: "EUR",
+  BR: "BRL",
 };
 
-/** ISO country → preferred Stripe Checkout locale */
 export const COUNTRY_TO_LOCALE: Record<string, LocaleCode> = {
   PT: "pt-PT", BR: "pt-BR",
   US: "en-US", GB: "en-GB", IE: "en-GB",
@@ -114,14 +85,14 @@ export const COUNTRY_TO_LOCALE: Record<string, LocaleCode> = {
   FR: "fr-FR", BE: "fr-FR", LU: "fr-FR",
   DE: "de-DE", AT: "de-DE", CH: "de-DE",
   IT: "it-IT",
-  NL: "en-US", // fallback to English for unmapped EU
+  NL: "en-US",
 };
 
 export const LOCALES: LocaleConfig[] = [
   { code: "pt-PT", label: "Português (PT)", flag: "🇵🇹", language: "pt", defaultCurrency: "EUR", country: "PT", stripeLocale: "pt" },
   { code: "pt-BR", label: "Português (BR)", flag: "🇧🇷", language: "pt", defaultCurrency: "BRL", country: "BR", stripeLocale: "pt-BR" },
-  { code: "en-US", label: "English (US)", flag: "🇺🇸", language: "en", defaultCurrency: "USD", country: "US", stripeLocale: "en" },
-  { code: "en-GB", label: "English (UK)", flag: "🇬🇧", language: "en", defaultCurrency: "GBP", country: "GB", stripeLocale: "en-GB" },
+  { code: "en-US", label: "English (US)", flag: "🇺🇸", language: "en", defaultCurrency: "EUR", country: "US", stripeLocale: "en" },
+  { code: "en-GB", label: "English (UK)", flag: "🇬🇧", language: "en", defaultCurrency: "EUR", country: "GB", stripeLocale: "en-GB" },
   { code: "es-ES", label: "Español", flag: "🇪🇸", language: "es", defaultCurrency: "EUR", country: "ES", stripeLocale: "es" },
   { code: "fr-FR", label: "Français", flag: "🇫🇷", language: "fr", defaultCurrency: "EUR", country: "FR", stripeLocale: "fr" },
   { code: "de-DE", label: "Deutsch", flag: "🇩🇪", language: "de", defaultCurrency: "EUR", country: "DE", stripeLocale: "de" },
@@ -129,13 +100,16 @@ export const LOCALES: LocaleConfig[] = [
 ];
 
 export const CURRENCIES: Record<CurrencyCode, CurrencyConfig> = {
-  EUR: { code: "EUR", symbol: "€", label: "Euro", presets: [5, 10, 20, 35, 50, 100], rateFromEur: 1, countries: ["PT", "ES", "FR", "DE", "IT", "NL", "BE", "AT", "IE", "FI"] },
+  EUR: { code: "EUR", symbol: "€", label: "Euro", presets: [5, 10, 20, 35, 50, 100], rateFromEur: 1, countries: ["PT", "ES", "FR", "DE", "IT", "NL", "BE", "AT", "IE"] },
   USD: { code: "USD", symbol: "$", label: "US Dollar", presets: [5, 10, 20, 35, 50, 100], rateFromEur: 1.08, countries: ["US", "MX", "EC", "SV"] },
   GBP: { code: "GBP", symbol: "£", label: "Pound Sterling", presets: [5, 10, 20, 30, 50, 90], rateFromEur: 0.85, countries: ["GB", "IM", "JE", "GG"] },
   BRL: { code: "BRL", symbol: "R$", label: "Real Brasileiro", presets: [25, 50, 100, 175, 250, 500], rateFromEur: 5.4, countries: ["BR"] },
   CHF: { code: "CHF", symbol: "CHF", label: "Schweizer Franken", presets: [5, 10, 20, 35, 50, 100], rateFromEur: 0.95, countries: ["CH", "LI"] },
   CAD: { code: "CAD", symbol: "$", label: "Canadian Dollar", presets: [7, 15, 28, 48, 70, 135], rateFromEur: 1.47, countries: ["CA"] },
 };
+
+/** Currencies exposed in the launch checkout / switcher. */
+export const CHECKOUT_CURRENCIES: CurrencyCode[] = ["EUR", "BRL"];
 
 export const DEFAULT_LOCALE: LocaleCode = "pt-PT";
 export const DEFAULT_CURRENCY: CurrencyCode = "EUR";
@@ -157,7 +131,7 @@ export function getCurrencyConfig(code: CurrencyCode): CurrencyConfig {
 
 export function getCurrencyForCountry(country?: string): CurrencyCode {
   if (!country) return DEFAULT_CURRENCY;
-  return COUNTRY_TO_CURRENCY[country.toUpperCase()] ?? DEFAULT_CURRENCY;
+  return country.toUpperCase() === "BR" ? "BRL" : "EUR";
 }
 
 export function getLocaleForCountry(country?: string): LocaleCode {
@@ -165,11 +139,13 @@ export function getLocaleForCountry(country?: string): LocaleCode {
   return COUNTRY_TO_LOCALE[country.toUpperCase()] ?? DEFAULT_LOCALE;
 }
 
-export function getPaymentMethodsForCurrency(currency: CurrencyCode) {
-  return PAYMENT_METHODS_BY_CURRENCY[currency] ?? PAYMENT_METHODS_BY_CURRENCY.EUR;
+export function getPaymentMethodsForCurrency(currency: CurrencyCode, country?: string) {
+  const methods = PAYMENT_METHODS_BY_CURRENCY[currency] ?? PAYMENT_METHODS_BY_CURRENCY.EUR;
+  if (!country) return methods;
+
+  const isoCountry = country.toUpperCase();
+  return methods.filter((method) => !method.countries || method.countries.includes(isoCountry));
 }
 
 export const ALL_LOCALES: LocaleCode[] = LOCALES.map((l) => l.code);
-export const ALL_CURRENCIES: CurrencyCode[] = Object.keys(
-  CURRENCIES
-) as CurrencyCode[];
+export const ALL_CURRENCIES: CurrencyCode[] = Object.keys(CURRENCIES) as CurrencyCode[];
