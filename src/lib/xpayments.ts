@@ -52,6 +52,10 @@ export type XPaymentsCheckoutSessionResponse = {
   [key: string]: unknown;
 };
 
+type XPaymentsCheckoutSessionEnvelope = XPaymentsCheckoutSessionResponse & {
+  data?: XPaymentsCheckoutSessionResponse;
+};
+
 type CreateChargeInput = {
   amountMinor: number;
   currency: XPaymentsCurrency;
@@ -120,7 +124,11 @@ function authHeaders(apiKey: string, orderId: string): HeadersInit {
   return {
     "content-type": "application/json",
     accept: "application/json",
+    // Current XPayments runtime accepts x-api-key; checkout documentation also
+    // describes Bearer API-key auth. Sending both keeps this S2S integration
+    // compatible without ever exposing the Store key to the browser.
     "x-api-key": apiKey,
+    authorization: `Bearer ${apiKey}`,
     "idempotency-key": orderId,
   };
 }
@@ -202,5 +210,12 @@ export async function createXPaymentsCheckoutSession(
     signal: AbortSignal.timeout(20_000),
   });
 
-  return readJsonResponse<XPaymentsCheckoutSessionResponse>(response, "checkout session");
+  const envelope = await readJsonResponse<XPaymentsCheckoutSessionEnvelope>(
+    response,
+    "checkout session"
+  );
+
+  // The technical contract documents a flat response while current runtime
+  // material also shows the standard { success, data } envelope. Support both.
+  return envelope.data ?? envelope;
 }
