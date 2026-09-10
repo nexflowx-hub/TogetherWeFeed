@@ -66,7 +66,7 @@ type CreateChargeInput = {
 };
 
 type CreateCheckoutSessionInput = {
-  amountMinor: number;
+  amountMajor: number;
   currency: XPaymentsCurrency;
   orderId: string;
   customerEmail?: string;
@@ -139,6 +139,7 @@ export function isXPaymentsConfigured(currency: XPaymentsCurrency): boolean {
 
 /**
  * Server-only XPayments S2S charge for local payment methods.
+ * Direct Charge uses minor units (cents), as documented by the S2S contract.
  * API keys never leave the Next.js server.
  */
 export async function createXPaymentsCharge(
@@ -179,14 +180,21 @@ export async function createXPaymentsCharge(
 
 /**
  * Card fallback through XPayments hosted checkout.
- * PIX, MB WAY and Multibanco stay inline; card can move to the XPayments
- * checkout until a first-party PCI-safe card Element is integrated here.
+ *
+ * IMPORTANT: unlike Direct Charge, the CURRENT checkout runtime persists
+ * CheckoutSession.amount in major units and converts it to minor units during
+ * `/checkout/initiate`. Older dossier material described this field as cents;
+ * runtime behaviour is authoritative here to avoid a 100x charge error.
  */
 export async function createXPaymentsCheckoutSession(
   input: CreateCheckoutSessionInput
 ): Promise<XPaymentsCheckoutSessionResponse> {
   const apiKey = getApiKey(input.currency);
   if (!apiKey) throw new Error(`XPAYMENTS_API_KEY_${input.currency} is not configured`);
+
+  if (!Number.isFinite(input.amountMajor) || input.amountMajor <= 0) {
+    throw new Error("XPayments checkout amount must be positive in major units");
+  }
 
   const metadata = cleanObject({
     ...(input.metadata ?? {}),
@@ -201,7 +209,7 @@ export async function createXPaymentsCheckoutSession(
     cache: "no-store",
     headers: authHeaders(apiKey, input.orderId),
     body: JSON.stringify({
-      amount: input.amountMinor,
+      amount: Number(input.amountMajor.toFixed(2)),
       currency: input.currency,
       reference: input.orderId,
       ...(input.customerEmail ? { customerEmail: input.customerEmail } : {}),
