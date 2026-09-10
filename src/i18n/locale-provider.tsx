@@ -210,20 +210,29 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     };
   }, []); // intentionally first mount only
 
-  const setLocale = useCallback((code: LocaleCode) => {
-    markLocaleChosen();
-    setLocaleState(code);
-    persist(LOCALE_STORAGE_KEY, LOCALE_COOKIE, code);
+  const setLocale = useCallback(
+    (code: LocaleCode) => {
+      markLocaleChosen();
+      setLocaleState(code);
+      persist(LOCALE_STORAGE_KEY, LOCALE_COOKIE, code);
 
-    const newDefault = getLocaleConfig(code).defaultCurrency;
-    setCurrencyState((prev) => {
-      if (!hasUserChosenCurrency() && prev !== newDefault) {
-        persist(CURRENCY_STORAGE_KEY, CURRENCY_COOKIE, newDefault);
-        return newDefault;
-      }
-      return prev;
-    });
-  }, []);
+      // Language is a presentation preference, not a payment-market signal.
+      // Once a visitor country is known, switching PT-PT/PT-BR must not move a
+      // donor between the EUR and BRL Stores.
+      const marketCurrency = country
+        ? getCurrencyForCountry(country)
+        : getLocaleConfig(code).defaultCurrency;
+
+      setCurrencyState((prev) => {
+        if (!hasUserChosenCurrency() && prev !== marketCurrency) {
+          persist(CURRENCY_STORAGE_KEY, CURRENCY_COOKIE, marketCurrency);
+          return marketCurrency;
+        }
+        return prev;
+      });
+    },
+    [country]
+  );
 
   const setCurrency = useCallback((code: CurrencyCode) => {
     if (!ACTIVE_CURRENCIES_LIST.includes(code)) return;
