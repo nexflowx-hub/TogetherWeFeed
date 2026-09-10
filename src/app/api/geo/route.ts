@@ -1,40 +1,44 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "edge";
+export const dynamic = "force-dynamic";
+
+function normaliseCountry(value: string | null): string | null {
+  const country = value?.trim().toUpperCase();
+  return country && /^[A-Z]{2}$/.test(country) ? country : null;
+}
 
 /**
- * Detects the visitor's country from request headers and returns the
- * recommended locale + currency. The frontend uses this to auto-set the
- * locale/currency on first visit (before the user manually overrides).
+ * Resolve the visitor country from trusted CDN/proxy headers.
  *
- * Supported headers (in priority order):
- *  - Cloudflare: CF-IPCountry
- *  - Vercel: x-vercel-ip-country
- *  - Generic: x-country-code, GEOIP_COUNTRY_CODE
- *  - Fallback: parse Accept-Language for a region hint
+ * IMPORTANT: this response is visitor-specific and MUST NOT be stored in a
+ * shared CDN/browser cache. A cached country can silently send a donor to the
+ * wrong currency/store and is particularly dangerous when payment API keys
+ * are selected by market.
  */
-export async function GET(req: Request) {
-  const headers = req.headers;
+export async function GET(request: NextRequest) {
+  const headers = request.headers;
   const country =
-    headers.get("cf-ipcountry") ||
-    headers.get("x-vercel-ip-country") ||
-    headers.get("x-country-code") ||
-    headers.get("geoip-country-code") ||
-    headers.get("x-geo-country") ||
-    "";
+    normaliseCountry(headers.get("cf-ipcountry")) ??
+    normaliseCountry(headers.get("x-vercel-ip-country")) ??
+    normaliseCountry(headers.get("x-country-code")) ??
+    normaliseCountry(headers.get("geoip-country-code")) ??
+    normaliseCountry(headers.get("x-geo-country"));
 
-  const acceptLanguage = headers.get("accept-language") || "";
+  const acceptLanguage = headers.get("accept-language") ?? null;
 
-  // Cache for 1 day on the edge so repeat visits are instant
   return NextResponse.json(
     {
-      country: country.toUpperCase() || null,
+      country,
       acceptLanguage,
       detectedAt: new Date().toISOString(),
     },
     {
       headers: {
-        "cache-control": "public, max-age=86400, s-maxage=86400",
+        "cache-control": "private, no-store, max-age=0, must-revalidate",
+        pragma: "no-cache",
+        expires: "0",
+        vary: "Accept-Language",
       },
     }
   );

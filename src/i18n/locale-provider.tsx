@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
   CURRENCIES,
+  CHECKOUT_CURRENCIES,
   DEFAULT_CURRENCY,
   DEFAULT_LOCALE,
   CURRENCY_COOKIE,
@@ -20,7 +21,6 @@ import {
   COUNTRY_COOKIE,
   COUNTRY_STORAGE_KEY,
   ALL_LOCALES,
-  ALL_CURRENCIES,
   getLocaleConfig,
   getCurrencyForCountry,
   getLocaleForCountry,
@@ -41,7 +41,6 @@ type LocaleContextValue = {
   convertFromEur: (eur: number) => number;
   presets: number[];
   paymentMethods: ReturnType<typeof getPaymentMethodsForCurrency>;
-  /** Apply the geo-detected locale/currency (only if user hasn't chosen) */
   applyGeo: (country: string | null) => void;
 };
 
@@ -58,16 +57,15 @@ function readStored<T extends string>(
       const stored = localStorage.getItem(storageKey);
       if (stored && (valid as string[]).includes(stored)) return stored as T;
     } catch {
-      // ignore
+      // Storage is best-effort only.
     }
     const match = document.cookie
       .split("; ")
       .find((c) => c.startsWith(`${cookieName}=`));
     if (match) {
-      const v = decodeURIComponent(match.split("=")[1]);
-      if ((valid as string[]).includes(v)) return v as T;
+      const value = decodeURIComponent(match.split("=")[1]);
+      if ((valid as string[]).includes(value)) return value as T;
     }
-    // Browser language hint (only for locale)
     if (storageKey === LOCALE_STORAGE_KEY) {
       const nav = navigator.language as T;
       if (nav && (valid as string[]).includes(nav)) return nav;
@@ -105,9 +103,8 @@ function persist(storageKey: string, cookieName: string, value: string) {
 }
 
 const ALL_LOCALES_LIST = ALL_LOCALES;
-const ALL_CURRENCIES_LIST = ALL_CURRENCIES;
+const ACTIVE_CURRENCIES_LIST = CHECKOUT_CURRENCIES;
 
-/** Track whether the user has manually chosen a locale/currency. */
 function hasUserChosenLocale(): boolean {
   if (typeof document === "undefined") return false;
   try {
@@ -116,6 +113,7 @@ function hasUserChosenLocale(): boolean {
     return false;
   }
 }
+
 function markLocaleChosen() {
   if (typeof document === "undefined") return;
   try {
@@ -124,6 +122,7 @@ function markLocaleChosen() {
     // ignore
   }
 }
+
 function hasUserChosenCurrency(): boolean {
   if (typeof document === "undefined") return false;
   try {
@@ -132,6 +131,7 @@ function hasUserChosenCurrency(): boolean {
     return false;
   }
 }
+
 function markCurrencyChosen() {
   if (typeof document === "undefined") return;
   try {
@@ -150,6 +150,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
       ALL_LOCALES_LIST
     )
   );
+
   const [currency, setCurrencyState] = useState<CurrencyCode>(() => {
     const loc = readStored<LocaleCode>(
       LOCALE_STORAGE_KEY,
@@ -161,70 +162,80 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
       CURRENCY_STORAGE_KEY,
       CURRENCY_COOKIE,
       DEFAULT_CURRENCY,
-      ALL_CURRENCIES_LIST
+      ACTIVE_CURRENCIES_LIST
     );
     const localeDefault = getLocaleConfig(loc).defaultCurrency;
     return cur === DEFAULT_CURRENCY && cur !== localeDefault ? localeDefault : cur;
   });
+
   const [country, setCountry] = useState<string | null>(() => readStoredCountry());
 
-  // Keep <html lang> in sync for SEO/accessibility
   useEffect(() => {
-    if (typeof document !== "undefined") {
-      document.documentElement.lang = locale.replace("_", "-");
-    }
+    document.documentElement.lang = locale.replace("_", "-");
   }, [locale]);
 
-  // Geo-detect on first mount (only if user hasn't manually chosen).
+  // Visitor-specific geo lookup. Deliberately no-store: sharing a cached country
+  // between donors can route them to the wrong currency/XPayments Store.
   useEffect(() => {
     if (hasUserChosenLocale() && hasUserChosenCurrency()) return;
+
     let cancelled = false;
-    fetch("/api/geo", { cache: "force-cache" })
-      .then((r) => r.json())
+    fetch("/api/geo", { cache: "no-store" })
+      .then((response) => response.json())
       .then((data: { country?: string | null }) => {
         if (cancelled || !data.country) return;
-        setCountry(data.country);
-        persist(COUNTRY_STORAGE_KEY, COUNTRY_COOKIE, data.country);
+
+        const geoCountry = data.country.toUpperCase();
+        setCountry(geoCountry);
+        persist(COUNTRY_STORAGE_KEY, COUNTRY_COOKIE, geoCountry);
 
         if (!hasUserChosenLocale()) {
-          const geoLocale = getLocaleForCountry(data.country);
+          const geoLocale = getLocaleForCountry(geoCountry);
           if (geoLocale !== locale) setLocaleState(geoLocale);
+          persist(LOCALE_STORAGE_KEY, LOCALE_COOKIE, geoLocale);
         }
+
         if (!hasUserChosenCurrency()) {
-          const geoCurrency = getCurrencyForCountry(data.country);
-          if (geoCurrency !== currency) {
-            setCurrencyState(geoCurrency);
-            persist(CURRENCY_STORAGE_KEY, CURRENCY_COOKIE, geoCurrency);
-          }
+          const geoCurrency = getCurrencyForCountry(geoCountry);
+          if (geoCurrency !== currency) setCurrencyState(geoCurrency);
+          persist(CURRENCY_STORAGE_KEY, CURRENCY_COOKIE, geoCurrency);
         }
       })
       .catch(() => {
-        // Geo-detection is best-effort; ignore failures
+        // Geo-detection is best-effort; EUR remains the safe default.
       });
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, []); // intentionally first mount only
 
-  const setLocale = useCallback((code: LocaleCode) => {
-    markLocaleChosen();
-    setLocaleState(code);
-    persist(LOCALE_STORAGE_KEY, LOCALE_COOKIE, code);
-    const newDefault = getLocaleConfig(code).defaultCurrency;
-    setCurrencyState((prev) => {
-      const prevDefault = getLocaleConfig(
-        ALL_LOCALES.find((l) => getLocaleConfig(l).defaultCurrency === prev) ??
-          DEFAULT_LOCALE
-      ).defaultCurrency;
-      if (prev === prevDefault && !hasUserChosenCurrency()) {
-        persist(CURRENCY_STORAGE_KEY, CURRENCY_COOKIE, newDefault);
-        return newDefault;
-      }
-      return prev;
-    });
-  }, []);
+  const setLocale = useCallback(
+    (code: LocaleCode) => {
+      markLocaleChosen();
+      setLocaleState(code);
+      persist(LOCALE_STORAGE_KEY, LOCALE_COOKIE, code);
+
+      // Language is a presentation preference, not a payment-market signal.
+      // Once a visitor country is known, switching PT-PT/PT-BR must not move a
+      // donor between the EUR and BRL Stores.
+      const marketCurrency = country
+        ? getCurrencyForCountry(country)
+        : getLocaleConfig(code).defaultCurrency;
+
+      setCurrencyState((prev) => {
+        if (!hasUserChosenCurrency() && prev !== marketCurrency) {
+          persist(CURRENCY_STORAGE_KEY, CURRENCY_COOKIE, marketCurrency);
+          return marketCurrency;
+        }
+        return prev;
+      });
+    },
+    [country]
+  );
 
   const setCurrency = useCallback((code: CurrencyCode) => {
+    if (!ACTIVE_CURRENCIES_LIST.includes(code)) return;
     markCurrencyChosen();
     setCurrencyState(code);
     persist(CURRENCY_STORAGE_KEY, CURRENCY_COOKIE, code);
@@ -233,18 +244,20 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   const applyGeo = useCallback(
     (geoCountry: string | null) => {
       if (!geoCountry) return;
-      setCountry(geoCountry);
-      persist(COUNTRY_STORAGE_KEY, COUNTRY_COOKIE, geoCountry);
+      const normalisedCountry = geoCountry.toUpperCase();
+      setCountry(normalisedCountry);
+      persist(COUNTRY_STORAGE_KEY, COUNTRY_COOKIE, normalisedCountry);
+
       if (!hasUserChosenLocale()) {
-        const geoLocale = getLocaleForCountry(geoCountry);
+        const geoLocale = getLocaleForCountry(normalisedCountry);
         if (geoLocale !== locale) setLocaleState(geoLocale);
+        persist(LOCALE_STORAGE_KEY, LOCALE_COOKIE, geoLocale);
       }
+
       if (!hasUserChosenCurrency()) {
-        const geoCurrency = getCurrencyForCountry(geoCountry);
-        if (geoCurrency !== currency) {
-          setCurrencyState(geoCurrency);
-          persist(CURRENCY_STORAGE_KEY, CURRENCY_COOKIE, geoCurrency);
-        }
+        const geoCurrency = getCurrencyForCountry(normalisedCountry);
+        if (geoCurrency !== currency) setCurrencyState(geoCurrency);
+        persist(CURRENCY_STORAGE_KEY, CURRENCY_COOKIE, geoCurrency);
       }
     },
     [locale, currency]
@@ -280,8 +293,8 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   );
 
   const paymentMethods = useMemo(
-    () => getPaymentMethodsForCurrency(currency),
-    [currency]
+    () => getPaymentMethodsForCurrency(currency, country ?? undefined),
+    [currency, country]
   );
 
   const value = useMemo<LocaleContextValue>(
@@ -298,7 +311,19 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
       paymentMethods,
       applyGeo,
     }),
-    [locale, currency, country, messages, setLocale, setCurrency, formatPrice, convertFromEur, currencyConfig.presets, paymentMethods, applyGeo]
+    [
+      locale,
+      currency,
+      country,
+      messages,
+      setLocale,
+      setCurrency,
+      formatPrice,
+      convertFromEur,
+      currencyConfig.presets,
+      paymentMethods,
+      applyGeo,
+    ]
   );
 
   return (
@@ -315,15 +340,14 @@ export function useLocale() {
   return ctx;
 }
 
-// Server-side helper to read locale from cookies (for metadata generation)
 export function readLocaleFromCookie(cookieHeader: string | null): LocaleCode {
   if (!cookieHeader) return DEFAULT_LOCALE;
   const match = cookieHeader
     .split("; ")
     .find((c) => c.startsWith(`${LOCALE_COOKIE}=`));
   if (match) {
-    const v = decodeURIComponent(match.split("=")[1]) as LocaleCode;
-    if ((ALL_LOCALES_LIST as string[]).includes(v)) return v;
+    const value = decodeURIComponent(match.split("=")[1]) as LocaleCode;
+    if ((ALL_LOCALES_LIST as string[]).includes(value)) return value;
   }
   return DEFAULT_LOCALE;
 }
@@ -334,8 +358,8 @@ export function readCurrencyFromCookie(cookieHeader: string | null): CurrencyCod
     .split("; ")
     .find((c) => c.startsWith(`${CURRENCY_COOKIE}=`));
   if (match) {
-    const v = decodeURIComponent(match.split("=")[1]) as CurrencyCode;
-    if ((ALL_CURRENCIES_LIST as string[]).includes(v)) return v;
+    const value = decodeURIComponent(match.split("=")[1]) as CurrencyCode;
+    if ((ACTIVE_CURRENCIES_LIST as string[]).includes(value)) return value;
   }
   return DEFAULT_CURRENCY;
 }

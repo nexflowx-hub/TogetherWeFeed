@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { ShieldCheck } from "lucide-react";
 import { useLocale } from "@/i18n/locale-provider";
 
 export function SiteFooter() {
@@ -21,7 +22,10 @@ export function SiteFooter() {
       <p className="mx-auto mt-2 max-w-md text-xs text-white/60">
         {messages.footer.tagline}
       </p>
-      <p className="mt-4 text-xs text-white/40">{messages.footer.disclaimer}</p>
+      <p className="mx-auto mt-4 flex max-w-md items-center justify-center gap-2 text-xs text-white/55">
+        <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+        <span>Pagamentos protegidos pela XPAYMENTS.</span>
+      </p>
     </footer>
   );
 }

@@ -44,6 +44,19 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-useless-escape": "off",
   },
 }, {
+  // These components intentionally derive/reset local UI state from browser
+  // lifecycle events. Keep the compatibility exemption tightly scoped rather
+  // than disabling the React rule project-wide.
+  files: [
+    "src/components/site/checkout-dialog.tsx",
+    "src/components/site/donation-success-banner.tsx",
+    "src/components/ui/carousel.tsx",
+    "src/hooks/use-mobile.ts",
+  ],
+  rules: {
+    "react-hooks/set-state-in-effect": "off",
+  },
+}, {
   ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills"]
 }];
 
