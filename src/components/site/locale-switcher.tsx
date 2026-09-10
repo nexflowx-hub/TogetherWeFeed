@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Globe } from "lucide-react";
 import { useLocale } from "@/i18n/locale-provider";
-import { LOCALES, CURRENCIES, type CurrencyCode, type LocaleCode } from "@/i18n/config";
+import {
+  LOCALES,
+  CURRENCIES,
+  CHECKOUT_CURRENCIES,
+  type CurrencyCode,
+  type LocaleCode,
+} from "@/i18n/config";
 
 export function LocaleSwitcher({ compact = false }: { compact?: boolean }) {
   const { locale, currency, setLocale, setCurrency, messages } = useLocale();
@@ -14,9 +20,7 @@ export function LocaleSwitcher({ compact = false }: { compact?: boolean }) {
   useEffect(() => {
     if (!open) return;
     const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
@@ -30,7 +34,7 @@ export function LocaleSwitcher({ compact = false }: { compact?: boolean }) {
   }, [open]);
 
   const activeLocale = LOCALES.find((l) => l.code === locale) ?? LOCALES[0];
-  const activeCurrency = CURRENCIES[currency];
+  const activeCurrency = CURRENCIES[currency] ?? CURRENCIES.EUR;
 
   return (
     <div className="relative" ref={ref}>
@@ -92,9 +96,7 @@ export function LocaleSwitcher({ compact = false }: { compact?: boolean }) {
                     <button
                       key={l.code}
                       type="button"
-                      onClick={() => {
-                        setLocale(l.code as LocaleCode);
-                      }}
+                      onClick={() => setLocale(l.code as LocaleCode)}
                       className={
                         "flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors " +
                         (active
@@ -103,16 +105,14 @@ export function LocaleSwitcher({ compact = false }: { compact?: boolean }) {
                       }
                     >
                       <span className="flex items-center gap-2">
-                        <span className="text-lg" aria-hidden="true">
-                          {l.flag}
-                        </span>
+                        <span className="text-lg" aria-hidden="true">{l.flag}</span>
                         {l.label}
                       </span>
                       {active && <Check className="h-4 w-4 text-grass" />}
                     </button>
                   );
                 })
-              : (Object.keys(CURRENCIES) as CurrencyCode[]).map((code) => {
+              : CHECKOUT_CURRENCIES.map((code: CurrencyCode) => {
                   const c = CURRENCIES[code];
                   const active = code === currency;
                   return (
@@ -128,12 +128,8 @@ export function LocaleSwitcher({ compact = false }: { compact?: boolean }) {
                       }
                     >
                       <span className="flex items-center gap-2">
-                        <span className="font-display w-8 text-center text-base">
-                          {c.symbol}
-                        </span>
-                        <span>
-                          {c.code} · {c.label}
-                        </span>
+                        <span className="font-display w-8 text-center text-base">{c.symbol}</span>
+                        <span>{c.code} · {c.label}</span>
                       </span>
                       {active && <Check className="h-4 w-4 text-grass" />}
                     </button>
