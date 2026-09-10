@@ -4,6 +4,7 @@ import {
   createXPaymentsCharge,
   createXPaymentsCheckoutSession,
   isXPaymentsConfigured,
+  XPaymentsRequestError,
   type XPaymentsCurrency,
   type XPaymentsMethod,
 } from "@/lib/xpayments";
@@ -85,8 +86,52 @@ function amountIsValid(amount: number, currency: XPaymentsCurrency): boolean {
   return amount >= min && amount <= max && Math.round(amount * 100) > 0;
 }
 
-function error(message: string, status = 400) {
-  return NextResponse.json({ success: false, error: message }, { status });
+function error(message: string, status = 400, errorCode?: string) {
+  return NextResponse.json(
+    { success: false, error: message, ...(errorCode ? { errorCode } : {}) },
+    { status }
+  );
+}
+
+function publicXPaymentsError(cause: unknown): { message: string; code: string } {
+  if (cause instanceof XPaymentsRequestError) {
+    const code = cause.code ?? `XPAYMENTS_HTTP_${cause.status}`;
+
+    if (
+      cause.status === 401 ||
+      cause.status === 403 ||
+      ["API_KEY_REQUIRED", "ACCESS_DENIED", "UNAUTHORIZED", "FORBIDDEN"].includes(code)
+    ) {
+      return {
+        message: "A configuração de pagamento desta moeda ainda não está autenticada. Tente novamente em instantes.",
+        code,
+      };
+    }
+
+    if (["INVALID_DOCUMENT", "INVALID_PAYER_DOCUMENT", "PAYER_DOCUMENT_REQUIRED"].includes(code)) {
+      return {
+        message: "Não foi possível validar o CPF/CNPJ informado para o PIX.",
+        code,
+      };
+    }
+
+    if (["GATEWAY_NOT_CONFIGURED", "PROVIDER_NOT_SUPPORTED", "PIX_ROUTE_NOT_CONFIGURED"].includes(code)) {
+      return {
+        message: "O PIX está temporariamente indisponível nesta loja.",
+        code,
+      };
+    }
+
+    return {
+      message: "Não foi possível iniciar o pagamento. Tente novamente.",
+      code,
+    };
+  }
+
+  return {
+    message: "Não foi possível iniciar o pagamento. Tente novamente.",
+    code: "XPAYMENTS_REQUEST_FAILED",
+  };
 }
 
 export async function POST(req: Request) {
@@ -144,7 +189,8 @@ export async function POST(req: Request) {
     locale: body.locale ?? "",
     country: country ?? "",
     customerIp: clientIp(req) ?? "",
-    ...(document ? { document } : {}),
+    ...(name ? { customerName: name } : {}),
+    ...(document ? { document, customerDocument: document } : {}),
   };
 
   // Preview/demo deployments remain usable without silently falling back to a
@@ -166,7 +212,7 @@ export async function POST(req: Request) {
   try {
     if (method === "card") {
       const session = await createXPaymentsCheckoutSession({
-        amountMinor,
+        amountMajor: body.amount,
         currency,
         orderId,
         customerEmail: validEmail(email) ? email : undefined,
@@ -199,8 +245,10 @@ export async function POST(req: Request) {
       orderId,
       customer: {
         name,
+        fullName: name,
         email: validEmail(email) ? email : undefined,
         phone,
+        ...(method === "pix" && document ? { document, taxId: document } : {}),
       },
       metadata,
     });
@@ -220,8 +268,15 @@ export async function POST(req: Request) {
       action: charge.action ?? null,
     });
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : "unknown_xpayments_error";
-    console.error("[checkout] XPayments request failed:", message);
-    return error("Não foi possível iniciar o pagamento. Tente novamente.", 502);
+    const diagnostic = publicXPaymentsError(cause);
+    const upstream = cause instanceof Error ? cause.message : "unknown_xpayments_error";
+    console.error("[checkout] XPayments request failed", {
+      code: diagnostic.code,
+      upstream,
+      currency,
+      method,
+      reference: orderId,
+    });
+    return error(diagnostic.message, 502, diagnostic.code);
   }
 }

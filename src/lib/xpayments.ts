@@ -3,8 +3,11 @@ export type XPaymentsMethod = "pix" | "mb_way" | "multibanco" | "card";
 
 export type XPaymentsCustomer = {
   name?: string;
+  fullName?: string;
   email?: string;
   phone?: string;
+  document?: string;
+  taxId?: string;
 };
 
 export type XPaymentsAction = {
@@ -75,6 +78,18 @@ type CreateCheckoutSessionInput = {
 
 const DEFAULT_BASE_URL = "https://api.xpayments.digital/api/v1";
 
+export class XPaymentsRequestError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+
+  constructor(message: string, status: number, code: string | null = null) {
+    super(message);
+    this.name = "XPaymentsRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 function getApiKey(currency: XPaymentsCurrency): string | null {
   const key =
     currency === "BRL"
@@ -94,6 +109,28 @@ function cleanObject<T extends Record<string, unknown>>(value: T): T {
   ) as T;
 }
 
+function upstreamErrorDetails(payload: { error?: unknown; message?: string }): {
+  message: string | null;
+  code: string | null;
+} {
+  if (typeof payload.message === "string" && payload.message.trim()) {
+    return { message: payload.message.trim(), code: null };
+  }
+
+  if (typeof payload.error === "string" && payload.error.trim()) {
+    return { message: payload.error.trim(), code: null };
+  }
+
+  if (payload.error && typeof payload.error === "object") {
+    const value = payload.error as Record<string, unknown>;
+    const message = typeof value.message === "string" && value.message.trim() ? value.message.trim() : null;
+    const code = typeof value.code === "string" && value.code.trim() ? value.code.trim() : null;
+    return { message, code };
+  }
+
+  return { message: null, code: null };
+}
+
 async function readJsonResponse<T extends { success?: boolean; error?: unknown; message?: string }>(
   response: Response,
   context: string
@@ -104,17 +141,20 @@ async function readJsonResponse<T extends { success?: boolean; error?: unknown; 
   try {
     payload = (text ? JSON.parse(text) : { success: response.ok }) as T;
   } catch {
-    throw new Error(`XPayments returned a non-JSON response for ${context} (HTTP ${response.status})`);
+    throw new XPaymentsRequestError(
+      `XPayments returned a non-JSON response for ${context}`,
+      response.status,
+      "NON_JSON_RESPONSE"
+    );
   }
 
   if (!response.ok || payload.success === false) {
-    const upstreamMessage =
-      typeof payload.message === "string"
-        ? payload.message
-        : typeof payload.error === "string"
-          ? payload.error
-          : `XPayments ${context} failed (HTTP ${response.status})`;
-    throw new Error(upstreamMessage);
+    const details = upstreamErrorDetails(payload);
+    throw new XPaymentsRequestError(
+      details.message ?? `XPayments ${context} failed`,
+      response.status,
+      details.code
+    );
   }
 
   return payload;
