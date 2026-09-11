@@ -55,6 +55,20 @@ export type XPaymentsCheckoutSessionResponse = {
   [key: string]: unknown;
 };
 
+export type XPaymentsStripeIntentResponse = {
+  id: string;
+  object?: string;
+  client_secret?: string | null;
+  status?: string;
+  currency?: string;
+  amount?: number;
+  payment_method_types?: string[];
+  metadata?: Record<string, string>;
+  error?: unknown;
+  message?: string;
+  [key: string]: unknown;
+};
+
 type XPaymentsCheckoutSessionEnvelope = XPaymentsCheckoutSessionResponse & {
   data?: XPaymentsCheckoutSessionResponse;
 };
@@ -76,7 +90,17 @@ type CreateCheckoutSessionInput = {
   metadata?: Record<string, string | number | boolean | null | undefined>;
 };
 
+type CreateStripeIntentInput = {
+  amountMinor: number;
+  currency: XPaymentsCurrency;
+  method: Exclude<XPaymentsMethod, "pix">;
+  orderId: string;
+  customer?: XPaymentsCustomer;
+  metadata?: Record<string, string | number | boolean | null | undefined>;
+};
+
 const DEFAULT_BASE_URL = "https://api.xpayments.digital/api/v1";
+const DEFAULT_STRIPE_BASE_URL = "https://api.xpayments.digital/api/stripe/v1";
 
 export class XPaymentsRequestError extends Error {
   readonly status: number;
@@ -99,8 +123,36 @@ function getApiKey(currency: XPaymentsCurrency): string | null {
   return key?.trim() || null;
 }
 
+function getStripeApiKey(currency: XPaymentsCurrency): string | null {
+  const dedicated =
+    currency === "BRL"
+      ? process.env.XPAYMENTS_STRIPE_API_KEY_BRL
+      : process.env.XPAYMENTS_STRIPE_API_KEY_EUR;
+
+  // TWF-EUR is already a Stripe-compatible Store, so the existing EUR Store
+  // key can be reused during migration. BRL deliberately has no fallback:
+  // XPAYMENTS_API_KEY_BRL belongs to the PIX/MisticPay Store and must remain
+  // isolated from Stripe Direct.
+  const fallback = currency === "EUR" ? process.env.XPAYMENTS_API_KEY_EUR : undefined;
+  return dedicated?.trim() || fallback?.trim() || null;
+}
+
 function getBaseUrl(): string {
   return (process.env.XPAYMENTS_API_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/$/, "");
+}
+
+function getStripeBaseUrl(): string {
+  return (process.env.XPAYMENTS_STRIPE_BASE_URL?.trim() || DEFAULT_STRIPE_BASE_URL).replace(/\/$/, "");
+}
+
+export function getXPaymentsStripePublishableKey(currency: XPaymentsCurrency): string | null {
+  const key =
+    currency === "BRL"
+      ? process.env.XPAYMENTS_STRIPE_PUBLISHABLE_KEY_BRL
+      : process.env.XPAYMENTS_STRIPE_PUBLISHABLE_KEY_EUR;
+
+  const value = key?.trim() || null;
+  return value && /^pk_(test|live)_/.test(value) ? value : null;
 }
 
 function cleanObject<T extends Record<string, unknown>>(value: T): T {
@@ -164,9 +216,6 @@ function authHeaders(apiKey: string, orderId: string): HeadersInit {
   return {
     "content-type": "application/json",
     accept: "application/json",
-    // Current XPayments runtime accepts x-api-key; checkout documentation also
-    // describes Bearer API-key auth. Sending both keeps this S2S integration
-    // compatible without ever exposing the Store key to the browser.
     "x-api-key": apiKey,
     authorization: `Bearer ${apiKey}`,
     "idempotency-key": orderId,
@@ -177,10 +226,13 @@ export function isXPaymentsConfigured(currency: XPaymentsCurrency): boolean {
   return Boolean(getApiKey(currency));
 }
 
+export function isXPaymentsStripeDirectConfigured(currency: XPaymentsCurrency): boolean {
+  return Boolean(getStripeApiKey(currency) && getXPaymentsStripePublishableKey(currency));
+}
+
 /**
- * Server-only XPayments S2S charge for local payment methods.
- * Direct Charge uses minor units (cents), as documented by the S2S contract.
- * API keys never leave the Next.js server.
+ * Native XPayments S2S charge. Together We Feed keeps this path for PIX.
+ * Direct Charge uses minor units and the Store-scoped xp_* key remains server-only.
  */
 export async function createXPaymentsCharge(
   input: CreateChargeInput
@@ -219,12 +271,67 @@ export async function createXPaymentsCharge(
 }
 
 /**
- * Card fallback through XPayments hosted checkout.
+ * Stripe-compatible Direct surface documented at docs.xpayments.digital.
  *
- * IMPORTANT: unlike Direct Charge, the CURRENT checkout runtime persists
- * CheckoutSession.amount in major units and converts it to minor units during
- * `/checkout/initiate`. Older dossier material described this field as cents;
- * runtime behaviour is authoritative here to avoid a 100x charge error.
+ * - amount is always sent in minor units;
+ * - MB WAY / Multibanco use explicit Stripe method types;
+ * - the generic card/wallet path enables automatic payment methods so Stripe
+ *   can surface card, Apple Pay, Google Pay, Link and eligible local methods;
+ * - only client_secret + pk_* are returned to the browser by our API route.
+ */
+export async function createXPaymentsStripeIntent(
+  input: CreateStripeIntentInput
+): Promise<XPaymentsStripeIntentResponse> {
+  const apiKey = getStripeApiKey(input.currency);
+  if (!apiKey) throw new Error(`XPAYMENTS_STRIPE_API_KEY_${input.currency} is not configured`);
+
+  if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
+    throw new Error("XPayments Stripe Direct amount must be a positive integer in minor units");
+  }
+
+  const metadata = cleanObject({
+    ...(input.metadata ?? {}),
+    merchant_reference: input.orderId,
+    order_id: input.orderId,
+    source: "together-we-feed",
+  });
+
+  const body = new URLSearchParams();
+  body.set("amount", String(input.amountMinor));
+  body.set("currency", input.currency.toLowerCase());
+
+  if (input.method === "card") {
+    body.set("automatic_payment_methods[enabled]", "true");
+  } else {
+    body.append("payment_method_types[]", input.method);
+  }
+
+  if (input.customer?.email) body.set("receipt_email", input.customer.email);
+
+  for (const [key, value] of Object.entries(metadata)) {
+    body.set(`metadata[${key}]`, String(value));
+  }
+
+  const response = await fetch(`${getStripeBaseUrl()}/payment_intents`, {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "x-api-key": apiKey,
+      accept: "application/json",
+      "content-type": "application/x-www-form-urlencoded",
+      "idempotency-key": `twf:${input.orderId}:${input.method}`,
+    },
+    body,
+    signal: AbortSignal.timeout(20_000),
+  });
+
+  return readJsonResponse<XPaymentsStripeIntentResponse>(response, "Stripe Direct PaymentIntent");
+}
+
+/**
+ * Legacy hosted-checkout fallback retained for compatibility with older flows.
+ * New Together We Feed card/wallet traffic uses Stripe Direct above.
  */
 export async function createXPaymentsCheckoutSession(
   input: CreateCheckoutSessionInput
@@ -263,7 +370,5 @@ export async function createXPaymentsCheckoutSession(
     "checkout session"
   );
 
-  // The technical contract documents a flat response while current runtime
-  // material also shows the standard { success, data } envelope. Support both.
   return envelope.data ?? envelope;
 }

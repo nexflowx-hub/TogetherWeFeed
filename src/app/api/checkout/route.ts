@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import {
   createXPaymentsCharge,
-  createXPaymentsCheckoutSession,
+  createXPaymentsStripeIntent,
+  getXPaymentsStripePublishableKey,
   isXPaymentsConfigured,
+  isXPaymentsStripeDirectConfigured,
   XPaymentsRequestError,
   type XPaymentsCurrency,
   type XPaymentsMethod,
@@ -115,9 +117,19 @@ function publicXPaymentsError(cause: unknown): { message: string; code: string }
       };
     }
 
-    if (["GATEWAY_NOT_CONFIGURED", "PROVIDER_NOT_SUPPORTED", "PIX_ROUTE_NOT_CONFIGURED"].includes(code)) {
+    if (
+      [
+        "GATEWAY_NOT_CONFIGURED",
+        "PROVIDER_NOT_SUPPORTED",
+        "PIX_ROUTE_NOT_CONFIGURED",
+        "STRIPE_ROUTE_NOT_CONFIGURED",
+        "NOT_STRIPE_ROUTE",
+        "STRIPE_SECRET_MISSING",
+        "STRIPE_ENVIRONMENT_MISMATCH",
+      ].includes(code)
+    ) {
       return {
-        message: "O PIX está temporariamente indisponível nesta loja.",
+        message: "Este método de pagamento ainda não está ativo nesta loja.",
         code,
       };
     }
@@ -168,10 +180,8 @@ export async function POST(req: Request) {
   const phone = normalisePortuguesePhone(body.customer?.phone);
   const document = cleanDocument(body.customer?.document);
 
-  if (method === "pix") {
-    if (!name || !document || ![11, 14].includes(document.length)) {
-      return error("Para PIX, indique o nome do pagador e um CPF/CNPJ válido.");
-    }
+  if (method === "pix" && (!name || !document || ![11, 14].includes(document.length))) {
+    return error("Para PIX, indique o nome do pagador e um CPF/CNPJ válido.");
   }
 
   if (method === "mb_way" && (!phone || !/^\+3519\d{8}$/.test(phone))) {
@@ -179,7 +189,7 @@ export async function POST(req: Request) {
   }
 
   if (method === "multibanco" && !validEmail(email)) {
-    return error("Indique um email válido para receber/guardar os dados Multibanco.");
+    return error("Indique um email válido para Multibanco.");
   }
 
   const orderId = `TWF-${currency}-${Date.now()}-${randomUUID().slice(0, 8)}`;
@@ -189,83 +199,108 @@ export async function POST(req: Request) {
     locale: body.locale ?? "",
     country: country ?? "",
     customerIp: clientIp(req) ?? "",
+    requestedMethod: method,
     ...(name ? { customerName: name } : {}),
     ...(document ? { document, customerDocument: document } : {}),
   };
 
-  // Preview/demo deployments remain usable without silently falling back to a
-  // different PSP. Production must configure one XPayments key per currency.
-  if (!isXPaymentsConfigured(currency)) {
-    return NextResponse.json({
-      success: true,
-      mode: "demo",
-      provider: "xpayments",
-      reference: orderId,
-      amount: body.amount,
-      currency,
-      method,
-      status: "demo",
-      action: null,
-    });
-  }
-
   try {
-    if (method === "card") {
-      const session = await createXPaymentsCheckoutSession({
-        amountMajor: body.amount,
+    // Brazil PIX remains on the certified Native S2S MisticPay path.
+    if (method === "pix") {
+      if (!isXPaymentsConfigured(currency)) {
+        return NextResponse.json({
+          success: true,
+          mode: "demo",
+          provider: "xpayments",
+          reference: orderId,
+          amount: body.amount,
+          currency,
+          method,
+          status: "demo",
+          action: null,
+        });
+      }
+
+      const charge = await createXPaymentsCharge({
+        amountMinor,
         currency,
+        method,
         orderId,
-        customerEmail: validEmail(email) ? email : undefined,
+        customer: {
+          name,
+          fullName: name,
+          email: validEmail(email) ? email : undefined,
+          phone,
+          ...(document ? { document, taxId: document } : {}),
+        },
         metadata,
       });
-      const checkoutUrl = session.checkoutUrl ?? session.url ?? null;
-
-      if (!checkoutUrl) {
-        throw new Error("XPayments did not return a checkout URL for card");
-      }
 
       return NextResponse.json({
         success: true,
         mode: "live",
         provider: "xpayments",
-        reference: orderId,
-        sessionId: session.sessionId ?? session.id ?? null,
+        reference: charge.reference ?? orderId,
+        transactionId: charge.transactionId ?? null,
         amount: body.amount,
         currency,
         method,
-        status: "requires_redirect",
-        action: { type: "redirect", url: checkoutUrl },
+        status: charge.status ?? "pending",
+        action: charge.action ?? null,
       });
     }
 
-    const charge = await createXPaymentsCharge({
+    // MB WAY, Multibanco, cards, Apple Pay, Google Pay and provider-eligible
+    // local methods use XPayments Stripe-compatible Direct.
+    if (!isXPaymentsStripeDirectConfigured(currency)) {
+      return error(
+        "O pagamento por cartão/carteira ainda não está configurado para esta moeda.",
+        503,
+        "STRIPE_DIRECT_NOT_CONFIGURED"
+      );
+    }
+
+    const intent = await createXPaymentsStripeIntent({
       amountMinor,
       currency,
       method,
       orderId,
       customer: {
         name,
-        fullName: name,
         email: validEmail(email) ? email : undefined,
         phone,
-        ...(method === "pix" && document ? { document, taxId: document } : {}),
       },
       metadata,
     });
+
+    const clientSecret = typeof intent.client_secret === "string" ? intent.client_secret : null;
+    const publicKey = getXPaymentsStripePublishableKey(currency);
+
+    if (!clientSecret || !publicKey) {
+      return error(
+        "A configuração Stripe Direct não devolveu os dados necessários para concluir o pagamento.",
+        502,
+        "STRIPE_DIRECT_CLIENT_CONFIG_MISSING"
+      );
+    }
 
     return NextResponse.json({
       success: true,
       mode: "live",
       provider: "xpayments",
-      reference: charge.reference ?? orderId,
-      transactionId: charge.transactionId ?? null,
+      reference: orderId,
+      transactionId: intent.metadata?.nexflowx_transaction_id ?? null,
       amount: body.amount,
       currency,
       method,
-      status: charge.status ?? "pending",
-      // PIX data is nested in action in the current certified response. Keep
-      // the provider action intact so copyPaste/qrCode are not lost.
-      action: charge.action ?? null,
+      status: intent.status ?? "requires_payment_method",
+      action: {
+        type: "stripe_direct",
+        clientSecret,
+        publicKey,
+        providerTxId: intent.id,
+        paymentMethodTypes: intent.payment_method_types ?? [],
+      },
     });
   } catch (cause) {
     const diagnostic = publicXPaymentsError(cause);
