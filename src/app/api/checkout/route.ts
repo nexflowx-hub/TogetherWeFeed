@@ -9,6 +9,7 @@ import {
   XPaymentsRequestError,
   type XPaymentsCurrency,
   type XPaymentsMethod,
+  type XPaymentsNativeMethod,
 } from "@/lib/xpayments";
 import type { LocaleCode } from "@/i18n/config";
 
@@ -31,6 +32,8 @@ type CheckoutBody = {
   country?: string;
   customer?: CheckoutCustomer;
 };
+
+const NATIVE_METHODS = new Set<XPaymentsMethod>(["pix", "mb_way", "multibanco", "bizum"]);
 
 function normaliseCountry(value?: string | null): string | null {
   const country = value?.trim().toUpperCase();
@@ -71,14 +74,24 @@ function normalisePortuguesePhone(value?: string): string | undefined {
   return raw.slice(0, 32);
 }
 
+function normaliseSpanishPhone(value?: string): string | undefined {
+  const raw = value?.trim();
+  if (!raw) return undefined;
+  const digits = raw.replace(/\D/g, "");
+  if (/^[67]\d{8}$/.test(digits)) return `+34${digits}`;
+  if (/^34[67]\d{8}$/.test(digits)) return `+${digits}`;
+  return raw.slice(0, 32);
+}
+
 function validEmail(value?: string): boolean {
   return Boolean(value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
 }
 
 function allowedMethods(currency: XPaymentsCurrency, country: string | null): XPaymentsMethod[] {
-  if (currency === "BRL") return ["pix", "card"];
-  if (country === "PT") return ["mb_way", "multibanco", "card"];
-  return ["card"];
+  if (currency === "BRL") return ["pix", "card", "other"];
+  if (country === "PT") return ["mb_way", "multibanco", "card", "other"];
+  if (country === "ES") return ["bizum", "card", "other"];
+  return ["card", "other"];
 }
 
 function amountIsValid(amount: number, currency: XPaymentsCurrency): boolean {
@@ -97,23 +110,19 @@ function error(message: string, status = 400, errorCode?: string) {
 
 function publicXPaymentsError(cause: unknown): { message: string; code: string } {
   if (cause instanceof XPaymentsRequestError) {
-    const code = cause.code ?? `XPAYMENTS_HTTP_${cause.status}`;
+    const upstreamCode = cause.code ?? `XPAYMENTS_HTTP_${cause.status}`;
 
-    if (
-      cause.status === 401 ||
-      cause.status === 403 ||
-      ["API_KEY_REQUIRED", "ACCESS_DENIED", "UNAUTHORIZED", "FORBIDDEN"].includes(code)
-    ) {
+    if (cause.status === 401 || cause.status === 403) {
       return {
-        message: "A configuração de pagamento desta moeda ainda não está autenticada. Tente novamente em instantes.",
-        code,
+        message: "Este meio de pagamento está temporariamente indisponível.",
+        code: "PAYMENT_AUTH_UNAVAILABLE",
       };
     }
 
-    if (["INVALID_DOCUMENT", "INVALID_PAYER_DOCUMENT", "PAYER_DOCUMENT_REQUIRED"].includes(code)) {
+    if (["INVALID_DOCUMENT", "INVALID_PAYER_DOCUMENT", "PAYER_DOCUMENT_REQUIRED"].includes(upstreamCode)) {
       return {
         message: "Não foi possível validar o CPF/CNPJ informado para o PIX.",
-        code,
+        code: "INVALID_PAYER_DOCUMENT",
       };
     }
 
@@ -126,17 +135,17 @@ function publicXPaymentsError(cause: unknown): { message: string; code: string }
         "NOT_STRIPE_ROUTE",
         "STRIPE_SECRET_MISSING",
         "STRIPE_ENVIRONMENT_MISMATCH",
-      ].includes(code)
+      ].includes(upstreamCode)
     ) {
       return {
-        message: "Este método de pagamento ainda não está ativo nesta loja.",
-        code,
+        message: "Este meio de pagamento ainda não está disponível.",
+        code: "PAYMENT_ROUTE_NOT_CONFIGURED",
       };
     }
 
     return {
       message: "Não foi possível iniciar o pagamento. Tente novamente.",
-      code,
+      code: "XPAYMENTS_REQUEST_FAILED",
     };
   }
 
@@ -144,6 +153,11 @@ function publicXPaymentsError(cause: unknown): { message: string; code: string }
     message: "Não foi possível iniciar o pagamento. Tente novamente.",
     code: "XPAYMENTS_REQUEST_FAILED",
   };
+}
+
+function paymentReturnUrl(req: Request): string {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "");
+  return `${configured || new URL(req.url).origin}/payment/complete`;
 }
 
 export async function POST(req: Request) {
@@ -177,8 +191,13 @@ export async function POST(req: Request) {
 
   const name = cleanText(body.customer?.name, 120);
   const email = cleanText(body.customer?.email, 160)?.toLowerCase();
-  const phone = normalisePortuguesePhone(body.customer?.phone);
   const document = cleanDocument(body.customer?.document);
+  const phone =
+    method === "mb_way"
+      ? normalisePortuguesePhone(body.customer?.phone)
+      : method === "bizum"
+        ? normaliseSpanishPhone(body.customer?.phone)
+        : cleanText(body.customer?.phone, 32);
 
   if (method === "pix" && (!name || !document || ![11, 14].includes(document.length))) {
     return error("Para PIX, indique o nome do pagador e um CPF/CNPJ válido.");
@@ -192,6 +211,10 @@ export async function POST(req: Request) {
     return error("Indique um email válido para Multibanco.");
   }
 
+  if (method === "bizum" && (!phone || !/^\+34[67]\d{8}$/.test(phone))) {
+    return error("Indique um número móvel espanhol válido para Bizum.");
+  }
+
   const orderId = `TWF-${currency}-${Date.now()}-${randomUUID().slice(0, 8)}`;
   const amountMinor = Math.round(body.amount * 100);
   const metadata = {
@@ -200,13 +223,13 @@ export async function POST(req: Request) {
     country: country ?? "",
     customerIp: clientIp(req) ?? "",
     requestedMethod: method,
+    ...(method === "bizum" ? { return_url: paymentReturnUrl(req) } : {}),
     ...(name ? { customerName: name } : {}),
     ...(document ? { document, customerDocument: document } : {}),
   };
 
   try {
-    // Brazil PIX remains on the certified Native S2S MisticPay path.
-    if (method === "pix") {
+    if (NATIVE_METHODS.has(method)) {
       if (!isXPaymentsConfigured(currency)) {
         return NextResponse.json({
           success: true,
@@ -224,14 +247,14 @@ export async function POST(req: Request) {
       const charge = await createXPaymentsCharge({
         amountMinor,
         currency,
-        method,
+        method: method as XPaymentsNativeMethod,
         orderId,
         customer: {
           name,
           fullName: name,
           email: validEmail(email) ? email : undefined,
           phone,
-          ...(document ? { document, taxId: document } : {}),
+          ...(method === "pix" && document ? { document, taxId: document } : {}),
         },
         metadata,
       });
@@ -250,13 +273,11 @@ export async function POST(req: Request) {
       });
     }
 
-    // MB WAY, Multibanco, cards, Apple Pay, Google Pay and provider-eligible
-    // local methods use XPayments Stripe-compatible Direct.
     if (!isXPaymentsStripeDirectConfigured(currency)) {
       return error(
-        "O pagamento por cartão/carteira ainda não está configurado para esta moeda.",
+        "Este meio de pagamento ainda não está disponível.",
         503,
-        "STRIPE_DIRECT_NOT_CONFIGURED"
+        "EMBEDDED_PAYMENT_NOT_CONFIGURED"
       );
     }
 
@@ -278,9 +299,9 @@ export async function POST(req: Request) {
 
     if (!clientSecret || !publicKey) {
       return error(
-        "A configuração Stripe Direct não devolveu os dados necessários para concluir o pagamento.",
+        "Não foi possível preparar o pagamento seguro. Tente novamente.",
         502,
-        "STRIPE_DIRECT_CLIENT_CONFIG_MISSING"
+        "EMBEDDED_PAYMENT_CLIENT_CONFIG_MISSING"
       );
     }
 
@@ -295,7 +316,7 @@ export async function POST(req: Request) {
       method,
       status: intent.status ?? "requires_payment_method",
       action: {
-        type: "stripe_direct",
+        type: "embedded_payment",
         clientSecret,
         publicKey,
         providerTxId: intent.id,
