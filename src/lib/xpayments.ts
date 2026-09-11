@@ -1,5 +1,7 @@
 export type XPaymentsCurrency = "EUR" | "BRL";
-export type XPaymentsMethod = "pix" | "mb_way" | "multibanco" | "card";
+export type XPaymentsNativeMethod = "pix" | "mb_way" | "multibanco" | "bizum";
+export type XPaymentsEmbeddedMethod = "card" | "other";
+export type XPaymentsMethod = XPaymentsNativeMethod | XPaymentsEmbeddedMethod;
 
 export type XPaymentsCustomer = {
   name?: string;
@@ -16,6 +18,7 @@ export type XPaymentsAction = {
   clientSecret?: string;
   publicKey?: string;
   providerTxId?: string;
+  paymentMethodTypes?: string[];
   entity?: string;
   entidade?: string;
   reference?: string;
@@ -29,6 +32,7 @@ export type XPaymentsAction = {
   qrCodeBase64?: string;
   qrCodeUrl?: string;
   url?: string;
+  redirectUrl?: string;
   [key: string]: unknown;
 };
 
@@ -39,17 +43,6 @@ export type XPaymentsChargeResponse = {
   status?: string;
   method?: XPaymentsMethod | string;
   action?: XPaymentsAction | null;
-  error?: unknown;
-  message?: string;
-  [key: string]: unknown;
-};
-
-export type XPaymentsCheckoutSessionResponse = {
-  success?: boolean;
-  sessionId?: string;
-  checkoutUrl?: string;
-  id?: string;
-  url?: string;
   error?: unknown;
   message?: string;
   [key: string]: unknown;
@@ -69,31 +62,19 @@ export type XPaymentsStripeIntentResponse = {
   [key: string]: unknown;
 };
 
-type XPaymentsCheckoutSessionEnvelope = XPaymentsCheckoutSessionResponse & {
-  data?: XPaymentsCheckoutSessionResponse;
-};
-
 type CreateChargeInput = {
   amountMinor: number;
   currency: XPaymentsCurrency;
-  method: Exclude<XPaymentsMethod, "card">;
+  method: XPaymentsNativeMethod;
   orderId: string;
   customer?: XPaymentsCustomer;
-  metadata?: Record<string, string | number | boolean | null | undefined>;
-};
-
-type CreateCheckoutSessionInput = {
-  amountMajor: number;
-  currency: XPaymentsCurrency;
-  orderId: string;
-  customerEmail?: string;
   metadata?: Record<string, string | number | boolean | null | undefined>;
 };
 
 type CreateStripeIntentInput = {
   amountMinor: number;
   currency: XPaymentsCurrency;
-  method: Exclude<XPaymentsMethod, "pix">;
+  method: XPaymentsEmbeddedMethod;
   orderId: string;
   customer?: XPaymentsCustomer;
   metadata?: Record<string, string | number | boolean | null | undefined>;
@@ -115,11 +96,7 @@ export class XPaymentsRequestError extends Error {
 }
 
 function getApiKey(currency: XPaymentsCurrency): string | null {
-  const key =
-    currency === "BRL"
-      ? process.env.XPAYMENTS_API_KEY_BRL
-      : process.env.XPAYMENTS_API_KEY_EUR;
-
+  const key = currency === "BRL" ? process.env.XPAYMENTS_API_KEY_BRL : process.env.XPAYMENTS_API_KEY_EUR;
   return key?.trim() || null;
 }
 
@@ -129,10 +106,8 @@ function getStripeApiKey(currency: XPaymentsCurrency): string | null {
       ? process.env.XPAYMENTS_STRIPE_API_KEY_BRL
       : process.env.XPAYMENTS_STRIPE_API_KEY_EUR;
 
-  // TWF-EUR is already a Stripe-compatible Store, so the existing EUR Store
-  // key can be reused during migration. BRL deliberately has no fallback:
-  // XPAYMENTS_API_KEY_BRL belongs to the PIX/MisticPay Store and must remain
-  // isolated from Stripe Direct.
+  // EUR can reuse the existing Store key when the Store is already compatible
+  // with the embedded provider surface. BRL remains isolated from the PIX Store.
   const fallback = currency === "EUR" ? process.env.XPAYMENTS_API_KEY_EUR : undefined;
   return dedicated?.trim() || fallback?.trim() || null;
 }
@@ -231,8 +206,8 @@ export function isXPaymentsStripeDirectConfigured(currency: XPaymentsCurrency): 
 }
 
 /**
- * Native XPayments S2S charge. Together We Feed keeps this path for PIX.
- * Direct Charge uses minor units and the Store-scoped xp_* key remains server-only.
+ * Native XPayments S2S charge for PIX and certified local payment methods.
+ * Amounts are minor units and the Store-scoped key remains server-side.
  */
 export async function createXPaymentsCharge(
   input: CreateChargeInput
@@ -258,6 +233,7 @@ export async function createXPaymentsCharge(
     body: JSON.stringify({
       amount: input.amountMinor,
       currency: input.currency,
+      reference: input.orderId,
       payment_method_types: [input.method],
       metadata,
       ...(input.customer && Object.keys(cleanObject(input.customer)).length
@@ -271,13 +247,9 @@ export async function createXPaymentsCharge(
 }
 
 /**
- * Stripe-compatible Direct surface documented at docs.xpayments.digital.
- *
- * - amount is always sent in minor units;
- * - MB WAY / Multibanco use explicit Stripe method types;
- * - the generic card/wallet path enables automatic payment methods so Stripe
- *   can surface card, Apple Pay, Google Pay, Link and eligible local methods;
- * - only client_secret + pk_* are returned to the browser by our API route.
+ * Embedded payment surface. `card` creates a card-only intent; `other` enables
+ * the broad eligible-method set. Provider implementation details stay outside
+ * donor-facing copy and API semantics.
  */
 export async function createXPaymentsStripeIntent(
   input: CreateStripeIntentInput
@@ -286,7 +258,7 @@ export async function createXPaymentsStripeIntent(
   if (!apiKey) throw new Error(`XPAYMENTS_STRIPE_API_KEY_${input.currency} is not configured`);
 
   if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
-    throw new Error("XPayments Stripe Direct amount must be a positive integer in minor units");
+    throw new Error("XPayments embedded amount must be a positive integer in minor units");
   }
 
   const metadata = cleanObject({
@@ -301,9 +273,9 @@ export async function createXPaymentsStripeIntent(
   body.set("currency", input.currency.toLowerCase());
 
   if (input.method === "card") {
-    body.set("automatic_payment_methods[enabled]", "true");
+    body.append("payment_method_types[]", "card");
   } else {
-    body.append("payment_method_types[]", input.method);
+    body.set("automatic_payment_methods[enabled]", "true");
   }
 
   if (input.customer?.email) body.set("receipt_email", input.customer.email);
@@ -326,49 +298,5 @@ export async function createXPaymentsStripeIntent(
     signal: AbortSignal.timeout(20_000),
   });
 
-  return readJsonResponse<XPaymentsStripeIntentResponse>(response, "Stripe Direct PaymentIntent");
-}
-
-/**
- * Legacy hosted-checkout fallback retained for compatibility with older flows.
- * New Together We Feed card/wallet traffic uses Stripe Direct above.
- */
-export async function createXPaymentsCheckoutSession(
-  input: CreateCheckoutSessionInput
-): Promise<XPaymentsCheckoutSessionResponse> {
-  const apiKey = getApiKey(input.currency);
-  if (!apiKey) throw new Error(`XPAYMENTS_API_KEY_${input.currency} is not configured`);
-
-  if (!Number.isFinite(input.amountMajor) || input.amountMajor <= 0) {
-    throw new Error("XPayments checkout amount must be positive in major units");
-  }
-
-  const metadata = cleanObject({
-    ...(input.metadata ?? {}),
-    order_id: input.orderId,
-    reference: input.orderId,
-    source: "together-we-feed",
-    requested_method: "card",
-  });
-
-  const response = await fetch(`${getBaseUrl()}/checkout/session`, {
-    method: "POST",
-    cache: "no-store",
-    headers: authHeaders(apiKey, input.orderId),
-    body: JSON.stringify({
-      amount: Number(input.amountMajor.toFixed(2)),
-      currency: input.currency,
-      reference: input.orderId,
-      ...(input.customerEmail ? { customerEmail: input.customerEmail } : {}),
-      metadata,
-    }),
-    signal: AbortSignal.timeout(20_000),
-  });
-
-  const envelope = await readJsonResponse<XPaymentsCheckoutSessionEnvelope>(
-    response,
-    "checkout session"
-  );
-
-  return envelope.data ?? envelope;
+  return readJsonResponse<XPaymentsStripeIntentResponse>(response, "embedded PaymentIntent");
 }
