@@ -14,15 +14,20 @@ import {
   X,
 } from "lucide-react";
 import { DONATION_OPTIONS, useDonate } from "./donate-provider";
+import { StripeDirectPayment } from "./stripe-direct-payment";
 import { useLocale } from "@/i18n/locale-provider";
 
 type PaymentMethod = "pix" | "mb_way" | "multibanco" | "card";
-type Status = "idle" | "loading" | "result" | "redirect" | "error";
+type Status = "idle" | "loading" | "result" | "error";
 
 type PaymentAction = {
   type?: string;
   message?: string;
   url?: string;
+  clientSecret?: string;
+  publicKey?: string;
+  providerTxId?: string;
+  paymentMethodTypes?: string[];
   copyPaste?: string;
   pixString?: string;
   qrCode?: string;
@@ -56,9 +61,9 @@ const METHOD_META: Record<
   { label: string; short: string; icon: typeof QrCode }
 > = {
   pix: { label: "PIX", short: "QR + Copia e Cola", icon: QrCode },
-  mb_way: { label: "MB WAY", short: "Confirme na app", icon: Smartphone },
-  multibanco: { label: "Multibanco", short: "Entidade + referência", icon: Landmark },
-  card: { label: "Cartão", short: "Visa · Mastercard", icon: CreditCard },
+  mb_way: { label: "MB WAY", short: "Prioritário em Portugal", icon: Smartphone },
+  multibanco: { label: "Multibanco", short: "Referência / homebanking", icon: Landmark },
+  card: { label: "Cartão + wallets", short: "Apple Pay · Google Pay · Link", icon: CreditCard },
 };
 
 function fieldClass() {
@@ -95,7 +100,7 @@ export function CheckoutDialog() {
     setErrorMsg("");
     setResult(null);
     setCopied(false);
-  }, [checkoutOpen, selectedId]);
+  }, [checkoutOpen, selectedId, currency]);
 
   useEffect(() => {
     if (!checkoutOpen) return;
@@ -112,9 +117,6 @@ export function CheckoutDialog() {
   const action = result?.action ?? null;
   const pixCode = action?.copyPaste ?? action?.pixString ?? "";
   const pixQr = action?.qrCode ?? action?.qrCodeBase64 ?? action?.qrCodeUrl ?? "";
-  const multibancoEntity = action?.entity ?? action?.entidade ?? "";
-  const multibancoReference = action?.reference ?? action?.referencia ?? "";
-  const multibancoAmount = action?.amount ?? action?.montante ?? label;
 
   const copyPix = async () => {
     if (!pixCode) return;
@@ -125,6 +127,12 @@ export function CheckoutDialog() {
     } catch {
       setCopied(false);
     }
+  };
+
+  const chooseAnotherMethod = () => {
+    setResult(null);
+    setStatus("idle");
+    setErrorMsg("");
   };
 
   const handleCheckout = async (e: React.FormEvent) => {
@@ -154,12 +162,6 @@ export function CheckoutDialog() {
         throw new Error(data.error || "Não foi possível iniciar o pagamento.");
       }
 
-      if (data.mode === "live" && data.method === "card" && data.action?.url) {
-        setStatus("redirect");
-        window.location.assign(data.action.url);
-        return;
-      }
-
       setResult(data);
       setStatus("result");
     } catch (err) {
@@ -179,8 +181,26 @@ export function CheckoutDialog() {
           <p className="max-w-sm text-sm leading-relaxed text-slate-600">
             Este ambiente ainda não tem a chave XPAYMENTS de {currency} configurada. Nenhum pagamento foi criado.
           </p>
-          <button type="button" onClick={() => setStatus("idle")} className="twf-btn-green">Voltar</button>
+          <button type="button" onClick={chooseAnotherMethod} className="twf-btn-green">Voltar</button>
         </div>
+      );
+    }
+
+    if (
+      action?.type === "stripe_direct" &&
+      action.clientSecret &&
+      action.publicKey &&
+      result.method !== "pix"
+    ) {
+      return (
+        <StripeDirectPayment
+          clientSecret={action.clientSecret}
+          publicKey={action.publicKey}
+          reference={result.reference}
+          method={result.method}
+          amountLabel={label}
+          onBack={chooseAnotherMethod}
+        />
       );
     }
 
@@ -215,37 +235,12 @@ export function CheckoutDialog() {
       );
     }
 
-    if (result.method === "mb_way") {
-      return (
-        <div className="flex flex-col items-center gap-4 py-8 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-grass/10 text-grass"><Smartphone className="h-8 w-8" /></div>
-          <h3 className="font-display text-2xl font-extrabold text-navy-deep">Confirme no MB WAY</h3>
-          <p className="max-w-sm text-sm leading-relaxed text-slate-600">{action?.message || "Enviámos o pedido para o seu telemóvel. Confirme o pagamento na app MB WAY."}</p>
-          <p className="text-xs text-slate-500">Pode manter esta página aberta enquanto confirma.</p>
-        </div>
-      );
-    }
-
-    if (result.method === "multibanco") {
-      return (
-        <div className="space-y-5 py-2 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-grass/10 text-grass"><Landmark className="h-7 w-7" /></div>
-          <div>
-            <h3 className="font-display text-2xl font-extrabold text-navy-deep">Dados Multibanco</h3>
-            <p className="mt-1 text-sm text-slate-600">Use estes dados no Multibanco ou no homebanking.</p>
-          </div>
-          <div className="grid gap-2 rounded-2xl bg-sky-soft p-4 text-left">
-            <div className="flex justify-between gap-4"><span className="text-sm text-slate-500">Entidade</span><strong className="text-navy-deep">{multibancoEntity || "—"}</strong></div>
-            <div className="flex justify-between gap-4"><span className="text-sm text-slate-500">Referência</span><strong className="text-navy-deep">{multibancoReference || "—"}</strong></div>
-            <div className="flex justify-between gap-4"><span className="text-sm text-slate-500">Valor</span><strong className="text-navy-deep">{String(multibancoAmount)}</strong></div>
-            {action?.expiresAt && <div className="flex justify-between gap-4"><span className="text-sm text-slate-500">Validade</span><strong className="text-navy-deep">{new Date(action.expiresAt).toLocaleString(locale)}</strong></div>}
-          </div>
-          <p className="text-xs text-slate-500">Referência do donativo: {result.reference}</p>
-        </div>
-      );
-    }
-
-    return null;
+    return (
+      <div className="space-y-4 py-8 text-center">
+        <p className="text-sm text-slate-600">Não foi possível apresentar o método de pagamento.</p>
+        <button type="button" onClick={chooseAnotherMethod} className="twf-btn-green">Voltar</button>
+      </div>
+    );
   };
 
   return (
@@ -264,13 +259,7 @@ export function CheckoutDialog() {
           <X className="h-5 w-5" />
         </button>
 
-        {status === "result" ? renderResult() : status === "redirect" ? (
-          <div className="flex flex-col items-center gap-4 py-12 text-center">
-            <Loader2 className="h-10 w-10 animate-spin text-grass" />
-            <h3 className="font-display text-xl font-bold text-navy-deep">A abrir o pagamento seguro…</h3>
-            <p className="text-sm text-slate-500">XPAYMENTS · Cartão</p>
-          </div>
-        ) : (
+        {status === "result" ? renderResult() : (
           <>
             <div className="mb-5 pr-10">
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-grass">{m.youAreDonating}</p>
@@ -307,7 +296,7 @@ export function CheckoutDialog() {
                   const Icon = meta.icon;
                   const active = method === code;
                   return (
-                    <button key={code} type="button" onClick={() => setMethod(code)} aria-pressed={active} className={"flex min-h-[64px] items-center gap-3 rounded-2xl border-2 px-3 text-left transition-all " + (active ? "border-grass bg-grass/5 shadow-sm" : "border-sky-soft hover:border-grass/40")}>
+                    <button key={code} type="button" onClick={() => setMethod(code)} aria-pressed={active} className={"flex min-h-[68px] items-center gap-3 rounded-2xl border-2 px-3 text-left transition-all " + (active ? "border-grass bg-grass/5 shadow-sm" : "border-sky-soft hover:border-grass/40")}>
                       <span className={"flex h-10 w-10 shrink-0 items-center justify-center rounded-xl " + (active ? "bg-grass text-white" : "bg-sky-soft text-navy-deep")}><Icon className="h-5 w-5" /></span>
                       <span><strong className="block text-sm text-navy-deep">{meta.label}</strong><span className="text-[11px] text-slate-500">{meta.short}</span></span>
                     </button>
@@ -338,7 +327,7 @@ export function CheckoutDialog() {
 
               <button type="submit" disabled={status === "loading"} className="twf-btn-green-lg w-full disabled:opacity-60">
                 {status === "loading" ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Lock className="mr-2 h-4 w-4" aria-hidden="true" />}
-                {status === "loading" ? "A preparar pagamento…" : `Doar ${label} com ${METHOD_META[method].label}`}
+                {status === "loading" ? "A preparar pagamento…" : `Continuar com ${METHOD_META[method].label}`}
               </button>
               <p className="text-center text-[11px] leading-relaxed text-slate-400">Sem donativo recorrente automático nesta fase. O valor mostrado é cobrado uma única vez.</p>
             </form>
