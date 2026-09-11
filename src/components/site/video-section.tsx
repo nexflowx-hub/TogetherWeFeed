@@ -1,39 +1,65 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
-import { Play, Pause, Volume2, VolumeX } from "lucide-react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { AlertCircle, Loader2, Pause, Play, RotateCcw, Volume2, VolumeX } from "lucide-react";
 import { useLocale } from "@/i18n/locale-provider";
+
+const DEFAULT_POSTER = "/media/images/video-poster.webp";
 
 export function VideoSection() {
   const { messages } = useLocale();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [mediaError, setMediaError] = useState(false);
+
+  const videoUrl = useMemo(
+    () => process.env.NEXT_PUBLIC_TWF_VIDEO_URL?.trim() || "",
+    []
+  );
 
   const togglePlay = useCallback(async () => {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || !videoUrl || mediaError) return;
 
-    if (playing) {
+    if (!video.paused) {
       video.pause();
-      setPlaying(false);
-    } else {
-      try {
-        video.muted = true; // ensure muted so autoplay policy allows it
-        await video.play();
-        setPlaying(true);
-      } catch (err) {
-        console.warn("[video] play() blocked:", err);
-      }
+      return;
     }
-  }, [playing]);
+
+    setLoading(true);
+    try {
+      video.muted = muted;
+      await video.play();
+    } catch (cause) {
+      console.warn("[video] play() failed", cause);
+      setPlaying(false);
+      setMediaError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [mediaError, muted, videoUrl]);
 
   const toggleMute = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    video.muted = !video.muted;
-    setMuted(video.muted);
+    const nextMuted = !video.muted;
+    video.muted = nextMuted;
+    setMuted(nextMuted);
   }, []);
+
+  const retry = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !videoUrl) return;
+
+    setMediaError(false);
+    setPlaying(false);
+    setLoading(true);
+    video.load();
+  }, [videoUrl]);
+
+  const unavailable = !videoUrl || mediaError;
 
   return (
     <section id="video" className="bg-white py-14 sm:py-20">
@@ -48,32 +74,48 @@ export function VideoSection() {
         <div className="relative mx-auto mt-8 aspect-video w-full max-w-4xl overflow-hidden rounded-3xl bg-navy-deep shadow-2xl">
           <video
             ref={videoRef}
-            poster="/media/images/video-poster.webp"
+            poster={DEFAULT_POSTER}
             muted={muted}
-            loop
             playsInline
             preload="metadata"
-            controls={playing}
-            onEnded={() => setPlaying(false)}
+            controls={playing && !mediaError}
+            onLoadStart={() => videoUrl && setLoading(true)}
+            onCanPlay={() => {
+              setLoading(false);
+              setMediaError(false);
+            }}
+            onWaiting={() => setLoading(true)}
+            onPlaying={() => {
+              setLoading(false);
+              setPlaying(true);
+            }}
             onPlay={() => setPlaying(true)}
             onPause={() => setPlaying(false)}
+            onEnded={() => setPlaying(false)}
+            onError={() => {
+              setLoading(false);
+              setPlaying(false);
+              setMediaError(true);
+            }}
             className="h-full w-full object-cover"
           >
-            <source
-              src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-              type="video/mp4"
-            />
+            {videoUrl ? <source src={videoUrl} type="video/mp4" /> : null}
           </video>
 
-          {!playing && (
+          {!playing && !unavailable && (
             <button
               type="button"
               onClick={togglePlay}
+              disabled={loading}
               aria-label={messages.video.play}
-              className="group absolute inset-0 flex items-center justify-center bg-navy-deep/40 transition-colors hover:bg-navy-deep/30"
+              className="group absolute inset-0 flex items-center justify-center bg-navy-deep/40 transition-colors hover:bg-navy-deep/30 disabled:cursor-wait"
             >
               <span className="flex h-20 w-20 items-center justify-center rounded-full bg-grass text-white shadow-2xl shadow-grass/40 transition-transform duration-200 group-hover:scale-110">
-                <Play className="ml-1 h-8 w-8 fill-current" aria-hidden="true" />
+                {loading ? (
+                  <Loader2 className="h-8 w-8 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Play className="ml-1 h-8 w-8 fill-current" aria-hidden="true" />
+                )}
               </span>
             </button>
           )}
@@ -94,12 +136,28 @@ export function VideoSection() {
                 aria-label={muted ? "Ativar som" : "Silenciar"}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-white/90 text-navy-deep shadow-lg transition-transform hover:scale-105"
               >
-                {muted ? (
-                  <VolumeX className="h-5 w-5" />
-                ) : (
-                  <Volume2 className="h-5 w-5" />
-                )}
+                {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
               </button>
+            </div>
+          )}
+
+          {unavailable && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-navy-deep/65 px-6 text-center text-white">
+              <AlertCircle className="h-9 w-9" aria-hidden="true" />
+              <p className="max-w-md text-sm font-semibold leading-relaxed">
+                {!videoUrl
+                  ? "O vídeo está a ser atualizado. Volte em breve."
+                  : "Não foi possível carregar o vídeo neste momento."}
+              </p>
+              {videoUrl && (
+                <button
+                  type="button"
+                  onClick={retry}
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-navy-deep"
+                >
+                  <RotateCcw className="h-4 w-4" /> Tentar novamente
+                </button>
+              )}
             </div>
           )}
         </div>

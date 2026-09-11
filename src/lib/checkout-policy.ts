@@ -71,13 +71,13 @@ export function getPixPayerFieldsMode(): PixPayerFieldsMode {
   const configured = process.env.CHECKOUT_PIX_PAYER_FIELDS?.trim().toLowerCase();
   return configured === "required" || configured === "hidden" || configured === "optional"
     ? configured
-    : "optional";
+    : "required";
 }
 
 export function getPixFallbackName(): string {
   return (
     process.env.CHECKOUT_PIX_FALLBACK_NAME?.trim() ||
-    "Together We Feed - Doador"
+    "TWF Help"
   ).slice(0, 120);
 }
 
