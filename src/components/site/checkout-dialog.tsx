@@ -20,6 +20,7 @@ import { useLocale } from "@/i18n/locale-provider";
 
 type PaymentMethod = "pix" | "mb_way" | "multibanco" | "bizum" | "card" | "other";
 type Status = "idle" | "loading" | "result" | "error";
+type PixPayerFieldsMode = "optional" | "required" | "hidden";
 
 type PaymentAction = {
   type?: string;
@@ -56,6 +57,16 @@ type CheckoutResponse = {
   status: string;
   action?: PaymentAction | null;
   error?: string;
+  errorCode?: string;
+};
+
+type CheckoutConfig = {
+  enabled: boolean;
+  country: string | null;
+  currency: string;
+  methods: PaymentMethod[];
+  pixPayerFields: PixPayerFieldsMode;
+  message?: string | null;
 };
 
 const METHOD_META: Record<
@@ -77,11 +88,14 @@ function fieldClass() {
 export function CheckoutDialog() {
   const { selected, selectedId, select, checkoutOpen, closeCheckout, price, label } = useDonate();
   const { messages, currency, locale, country, presets, formatPrice, paymentMethods } = useLocale();
-  const availableMethods = useMemo(
+
+  const localMethods = useMemo(
     () => paymentMethods.map((item) => item.type).filter((item): item is PaymentMethod => item in METHOD_META),
     [paymentMethods]
   );
 
+  const [checkoutConfig, setCheckoutConfig] = useState<CheckoutConfig | null>(null);
+  const [configLoading, setConfigLoading] = useState(false);
   const [method, setMethod] = useState<PaymentMethod>("card");
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
@@ -91,12 +105,72 @@ export function CheckoutDialog() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [document, setDocument] = useState("");
+  const [pixIdentityRequired, setPixIdentityRequired] = useState(false);
+
+  const availableMethods = useMemo(() => {
+    if (!checkoutConfig) return localMethods;
+    return checkoutConfig.methods.filter((item): item is PaymentMethod => item in METHOD_META);
+  }, [checkoutConfig, localMethods]);
 
   useEffect(() => {
     if (!checkoutOpen) return;
+
+    let cancelled = false;
+    const loadConfig = async () => {
+      setConfigLoading(true);
+      setCheckoutConfig(null);
+
+      try {
+        const params = new URLSearchParams({ currency, country });
+        const response = await fetch(`/api/checkout/config?${params.toString()}`, {
+          cache: "no-store",
+        });
+        const data = (await response.json().catch(() => ({}))) as Partial<CheckoutConfig> & { error?: string };
+
+        if (!response.ok) {
+          throw new Error(data.error || "Não foi possível verificar os meios de pagamento desta campanha.");
+        }
+
+        if (!cancelled) {
+          setCheckoutConfig({
+            enabled: Boolean(data.enabled),
+            country: data.country ?? country,
+            currency: data.currency ?? currency,
+            methods: Array.isArray(data.methods) ? data.methods : [],
+            pixPayerFields:
+              data.pixPayerFields === "required" || data.pixPayerFields === "hidden"
+                ? data.pixPayerFields
+                : "optional",
+            message: data.message ?? null,
+          });
+        }
+      } catch (cause) {
+        if (!cancelled) {
+          setCheckoutConfig({
+            enabled: false,
+            country,
+            currency,
+            methods: [],
+            pixPayerFields: "optional",
+            message: cause instanceof Error ? cause.message : "Pagamento temporariamente indisponível.",
+          });
+        }
+      } finally {
+        if (!cancelled) setConfigLoading(false);
+      }
+    };
+
+    void loadConfig();
+    return () => {
+      cancelled = true;
+    };
+  }, [checkoutOpen, country, currency]);
+
+  useEffect(() => {
+    if (!checkoutOpen || configLoading || !checkoutConfig?.enabled) return;
     const preferred = availableMethods[0] ?? "card";
     if (!availableMethods.includes(method)) setMethod(preferred);
-  }, [checkoutOpen, availableMethods, method]);
+  }, [checkoutOpen, configLoading, checkoutConfig, availableMethods, method]);
 
   useEffect(() => {
     if (!checkoutOpen) return;
@@ -104,7 +178,8 @@ export function CheckoutDialog() {
     setErrorMsg("");
     setResult(null);
     setCopied(false);
-  }, [checkoutOpen, selectedId, currency]);
+    setPixIdentityRequired(false);
+  }, [checkoutOpen, selectedId, currency, country]);
 
   useEffect(() => {
     if (!checkoutOpen) return;
@@ -125,6 +200,11 @@ export function CheckoutDialog() {
   const multibancoReference = action?.reference ?? action?.referencia ?? "";
   const multibancoAmount = action?.amount ?? action?.montante ?? label;
   const redirectUrl = action?.url ?? action?.redirectUrl ?? "";
+  const pixFieldMode: PixPayerFieldsMode = pixIdentityRequired
+    ? "required"
+    : checkoutConfig?.pixPayerFields ?? "optional";
+  const showPixIdentityFields = method === "pix" && pixFieldMode !== "hidden";
+  const pixFieldsRequired = pixFieldMode === "required";
 
   const copyPix = async () => {
     if (!pixCode) return;
@@ -145,6 +225,13 @@ export function CheckoutDialog() {
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!checkoutConfig?.enabled || !availableMethods.includes(method)) {
+      setErrorMsg(checkoutConfig?.message || "Este meio de pagamento não está ativo nesta campanha.");
+      setStatus("error");
+      return;
+    }
+
     setStatus("loading");
     setErrorMsg("");
     setResult(null);
@@ -165,8 +252,14 @@ export function CheckoutDialog() {
         }),
       });
 
-      const data = (await res.json().catch(() => ({}))) as CheckoutResponse & { error?: string };
+      const data = (await res.json().catch(() => ({}))) as CheckoutResponse;
       if (!res.ok || data.success === false) {
+        if (data.errorCode === "PAYER_DOCUMENT_REQUIRED") {
+          setPixIdentityRequired(true);
+          setErrorMsg(data.error || "Para concluir este PIX, informe o CPF/CNPJ do pagador.");
+          setStatus("error");
+          return;
+        }
         throw new Error(data.error || "Não foi possível iniciar o pagamento.");
       }
 
@@ -301,7 +394,8 @@ export function CheckoutDialog() {
     );
   };
 
-  const countryLabel = country === "BR" ? "Brasil" : country === "PT" ? "Portugal" : country === "ES" ? "España" : currency;
+  const resolvedCountry = checkoutConfig?.country ?? country;
+  const countryLabel = resolvedCountry === "BR" ? "Brasil" : resolvedCountry === "PT" ? "Portugal" : resolvedCountry === "ES" ? "España" : currency;
 
   return (
     <div
@@ -319,7 +413,20 @@ export function CheckoutDialog() {
           <X className="h-5 w-5" />
         </button>
 
-        {status === "result" ? renderResult() : (
+        {status === "result" ? renderResult() : configLoading ? (
+          <div className="flex flex-col items-center gap-3 py-12 text-center">
+            <Loader2 className="h-9 w-9 animate-spin text-grass" />
+            <p className="text-sm text-slate-500">A verificar os meios de pagamento disponíveis…</p>
+          </div>
+        ) : checkoutConfig && !checkoutConfig.enabled ? (
+          <div className="flex flex-col items-center gap-4 py-10 text-center">
+            <ShieldCheck className="h-12 w-12 text-slate-400" />
+            <h3 className="font-display text-2xl font-extrabold text-navy-deep">Campanha indisponível nesta localização</h3>
+            <p className="max-w-sm text-sm leading-relaxed text-slate-600">
+              {checkoutConfig.message || "Os donativos desta campanha não estão disponíveis na sua localização."}
+            </p>
+          </div>
+        ) : (
           <>
             <div className="mb-5 pr-10">
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-grass">{m.youAreDonating}</p>
@@ -347,7 +454,9 @@ export function CheckoutDialog() {
 
             <div className="mb-5">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Como quer pagar?</p>
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                  {availableMethods.length === 1 ? "Meio de pagamento" : "Como quer pagar?"}
+                </p>
                 <span className="text-[11px] font-semibold text-slate-400">{countryLabel}</span>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -366,10 +475,21 @@ export function CheckoutDialog() {
             </div>
 
             <form className="space-y-3" onSubmit={handleCheckout}>
-              {method === "pix" && (
+              {showPixIdentityFields && (
                 <>
-                  <label className="block text-xs font-bold text-slate-600">Nome do pagador<input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required maxLength={120} className={fieldClass()} placeholder="Nome completo" /></label>
-                  <label className="block text-xs font-bold text-slate-600">CPF ou CNPJ<input value={document} onChange={(e) => setDocument(e.target.value)} inputMode="numeric" autoComplete="off" required maxLength={18} className={fieldClass()} placeholder="Somente números" /></label>
+                  <label className="block text-xs font-bold text-slate-600">
+                    Nome do pagador{pixFieldsRequired ? "" : " (opcional)"}
+                    <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required={pixFieldsRequired} maxLength={120} className={fieldClass()} placeholder="Nome completo" />
+                  </label>
+                  <label className="block text-xs font-bold text-slate-600">
+                    CPF ou CNPJ{pixFieldsRequired ? "" : " (opcional)"}
+                    <input value={document} onChange={(e) => setDocument(e.target.value)} inputMode="numeric" autoComplete="off" required={pixFieldsRequired} maxLength={18} className={fieldClass()} placeholder="Somente números" />
+                  </label>
+                  {!pixFieldsRequired && (
+                    <p className="text-[11px] leading-relaxed text-slate-400">
+                      Pode continuar sem preencher. Se a instituição de pagamento exigir identificação, pediremos estes dados antes de concluir.
+                    </p>
+                  )}
                 </>
               )}
 
@@ -389,7 +509,7 @@ export function CheckoutDialog() {
 
               {status === "error" && <div role="alert" className="rounded-xl bg-rose-warn/10 px-3 py-2 text-sm text-rose-warn">{errorMsg}</div>}
 
-              <button type="submit" disabled={status === "loading"} className="twf-btn-green-lg w-full disabled:opacity-60">
+              <button type="submit" disabled={status === "loading" || availableMethods.length === 0} className="twf-btn-green-lg w-full disabled:opacity-60">
                 {status === "loading" ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Lock className="mr-2 h-4 w-4" aria-hidden="true" />}
                 {status === "loading" ? "A preparar pagamento…" : `Doar ${label} com ${METHOD_META[method].label}`}
               </button>

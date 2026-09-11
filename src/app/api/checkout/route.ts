@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import {
+  getCheckoutPolicy,
+  getPixFallbackName,
+  requestCountry,
+} from "@/lib/checkout-policy";
+import {
   createXPaymentsCharge,
   createXPaymentsStripeIntent,
   getXPaymentsStripePublishableKey,
@@ -10,6 +15,7 @@ import {
   type XPaymentsCurrency,
   type XPaymentsMethod,
   type XPaymentsNativeMethod,
+  type XPaymentsEmbeddedMethod,
 } from "@/lib/xpayments";
 import type { LocaleCode } from "@/i18n/config";
 
@@ -33,22 +39,12 @@ type CheckoutBody = {
   customer?: CheckoutCustomer;
 };
 
-const NATIVE_METHODS = new Set<XPaymentsMethod>(["pix", "mb_way", "multibanco", "bizum"]);
-
-function normaliseCountry(value?: string | null): string | null {
-  const country = value?.trim().toUpperCase();
-  return country && /^[A-Z]{2}$/.test(country) ? country : null;
-}
-
-function requestCountry(req: Request, fallback?: string): string | null {
-  return (
-    normaliseCountry(req.headers.get("cf-ipcountry")) ??
-    normaliseCountry(req.headers.get("x-vercel-ip-country")) ??
-    normaliseCountry(req.headers.get("x-country-code")) ??
-    normaliseCountry(req.headers.get("geoip-country-code")) ??
-    normaliseCountry(fallback)
-  );
-}
+const NATIVE_METHODS = new Set<XPaymentsMethod>([
+  "pix",
+  "mb_way",
+  "multibanco",
+  "bizum",
+]);
 
 function clientIp(req: Request): string | null {
   const forwarded = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
@@ -87,13 +83,6 @@ function validEmail(value?: string): boolean {
   return Boolean(value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
 }
 
-function allowedMethods(currency: XPaymentsCurrency, country: string | null): XPaymentsMethod[] {
-  if (currency === "BRL") return ["pix", "card", "other"];
-  if (country === "PT") return ["mb_way", "multibanco", "card", "other"];
-  if (country === "ES") return ["bizum", "card", "other"];
-  return ["card", "other"];
-}
-
 function amountIsValid(amount: number, currency: XPaymentsCurrency): boolean {
   if (!Number.isFinite(amount)) return false;
   const min = currency === "BRL" ? 5 : 1;
@@ -108,7 +97,7 @@ function error(message: string, status = 400, errorCode?: string) {
   );
 }
 
-function publicXPaymentsError(cause: unknown): { message: string; code: string } {
+function publicXPaymentsError(cause: unknown): { message: string; code: string; status: number } {
   if (cause instanceof XPaymentsRequestError) {
     const upstreamCode = cause.code ?? `XPAYMENTS_HTTP_${cause.status}`;
 
@@ -116,13 +105,23 @@ function publicXPaymentsError(cause: unknown): { message: string; code: string }
       return {
         message: "Este meio de pagamento está temporariamente indisponível.",
         code: "PAYMENT_AUTH_UNAVAILABLE",
+        status: 502,
       };
     }
 
-    if (["INVALID_DOCUMENT", "INVALID_PAYER_DOCUMENT", "PAYER_DOCUMENT_REQUIRED"].includes(upstreamCode)) {
+    if (upstreamCode === "PAYER_DOCUMENT_REQUIRED") {
+      return {
+        message: "Para concluir este PIX, informe o CPF/CNPJ do pagador.",
+        code: "PAYER_DOCUMENT_REQUIRED",
+        status: 422,
+      };
+    }
+
+    if (["INVALID_DOCUMENT", "INVALID_PAYER_DOCUMENT"].includes(upstreamCode)) {
       return {
         message: "Não foi possível validar o CPF/CNPJ informado para o PIX.",
         code: "INVALID_PAYER_DOCUMENT",
+        status: 422,
       };
     }
 
@@ -140,18 +139,21 @@ function publicXPaymentsError(cause: unknown): { message: string; code: string }
       return {
         message: "Este meio de pagamento ainda não está disponível.",
         code: "PAYMENT_ROUTE_NOT_CONFIGURED",
+        status: 503,
       };
     }
 
     return {
       message: "Não foi possível iniciar o pagamento. Tente novamente.",
       code: "XPAYMENTS_REQUEST_FAILED",
+      status: 502,
     };
   }
 
   return {
     message: "Não foi possível iniciar o pagamento. Tente novamente.",
     code: "XPAYMENTS_REQUEST_FAILED",
+    status: 502,
   };
 }
 
@@ -177,6 +179,15 @@ export async function POST(req: Request) {
     return error("Moeda não suportada neste checkout.");
   }
 
+  const policy = getCheckoutPolicy(country, currency);
+  if (!policy.enabled) {
+    return error(
+      policy.message || "Os donativos desta campanha não estão disponíveis nesta localização.",
+      403,
+      "CHECKOUT_CAMPAIGN_BLOCKED"
+    );
+  }
+
   if (frequency !== "once") {
     return error("Os donativos recorrentes serão ativados numa fase posterior. Escolha um donativo único.");
   }
@@ -185,11 +196,15 @@ export async function POST(req: Request) {
     return error("Valor de donativo inválido.");
   }
 
-  if (!method || !allowedMethods(currency, country).includes(method)) {
-    return error("Método de pagamento indisponível para esta localização/moeda.");
+  if (!method || !policy.methods.includes(method)) {
+    return error(
+      "Este meio de pagamento não está ativo nesta campanha.",
+      403,
+      "PAYMENT_METHOD_DISABLED"
+    );
   }
 
-  const name = cleanText(body.customer?.name, 120);
+  const enteredName = cleanText(body.customer?.name, 120);
   const email = cleanText(body.customer?.email, 160)?.toLowerCase();
   const document = cleanDocument(body.customer?.document);
   const phone =
@@ -199,8 +214,14 @@ export async function POST(req: Request) {
         ? normaliseSpanishPhone(body.customer?.phone)
         : cleanText(body.customer?.phone, 32);
 
-  if (method === "pix" && (!name || !document || ![11, 14].includes(document.length))) {
-    return error("Para PIX, indique o nome do pagador e um CPF/CNPJ válido.");
+  if (method === "pix") {
+    if (document && ![11, 14].includes(document.length)) {
+      return error("Indique um CPF/CNPJ válido ou deixe o campo em branco.", 422, "INVALID_PAYER_DOCUMENT");
+    }
+
+    if (policy.pixPayerFields === "required" && !document) {
+      return error("Para PIX, indique um CPF/CNPJ válido.", 422, "PAYER_DOCUMENT_REQUIRED");
+    }
   }
 
   if (method === "mb_way" && (!phone || !/^\+3519\d{8}$/.test(phone))) {
@@ -215,6 +236,7 @@ export async function POST(req: Request) {
     return error("Indique um número móvel espanhol válido para Bizum.");
   }
 
+  const pixPayerName = method === "pix" ? enteredName || getPixFallbackName() : enteredName;
   const orderId = `TWF-${currency}-${Date.now()}-${randomUUID().slice(0, 8)}`;
   const amountMinor = Math.round(body.amount * 100);
   const metadata = {
@@ -224,7 +246,7 @@ export async function POST(req: Request) {
     customerIp: clientIp(req) ?? "",
     requestedMethod: method,
     ...(method === "bizum" ? { return_url: paymentReturnUrl(req) } : {}),
-    ...(name ? { customerName: name } : {}),
+    ...(pixPayerName ? { customerName: pixPayerName } : {}),
     ...(document ? { document, customerDocument: document } : {}),
   };
 
@@ -250,8 +272,8 @@ export async function POST(req: Request) {
         method: method as XPaymentsNativeMethod,
         orderId,
         customer: {
-          name,
-          fullName: name,
+          name: pixPayerName,
+          fullName: pixPayerName,
           email: validEmail(email) ? email : undefined,
           phone,
           ...(method === "pix" && document ? { document, taxId: document } : {}),
@@ -284,10 +306,10 @@ export async function POST(req: Request) {
     const intent = await createXPaymentsStripeIntent({
       amountMinor,
       currency,
-      method,
+      method: method as XPaymentsEmbeddedMethod,
       orderId,
       customer: {
-        name,
+        name: enteredName,
         email: validEmail(email) ? email : undefined,
         phone,
       },
@@ -333,6 +355,6 @@ export async function POST(req: Request) {
       method,
       reference: orderId,
     });
-    return error(diagnostic.message, 502, diagnostic.code);
+    return error(diagnostic.message, diagnostic.status, diagnostic.code);
   }
 }
