@@ -2,11 +2,11 @@
 //
 // Payments are intentionally normalised to two merchant markets while the
 // project validates Brazil + Portugal/Europe:
-//   - Brazil -> BRL (PIX / card)
-//   - every other country, including all of Europe -> EUR
+//   - Brazil -> BRL (PIX Native S2S + Stripe Direct for cards/wallets)
+//   - every other country, including all of Europe -> EUR (Stripe Direct)
 //
-// Keeping only two active checkout currencies lets the server select one of
-// two XPayments Store API keys deterministically and avoids accidental
+// Keeping only two active checkout currencies lets the server select the
+// correct XPayments integration deterministically and avoids accidental
 // cross-store routing.
 
 export type CurrencyCode = "EUR" | "USD" | "GBP" | "BRL" | "CHF" | "CAD";
@@ -48,24 +48,25 @@ export type PaymentMethodConfig = {
 };
 
 /**
- * Payment methods supported by the Together We Feed checkout foundation.
- * The EUR configuration prioritises the Portuguese methods first; callers
- * should pass `country` so MB WAY/Multibanco are only promoted in Portugal.
+ * Checkout presentation order. For Portugal we explicitly prioritise MB WAY
+ * and Multibanco before the broad Stripe Direct Payment Element. The generic
+ * `card` option uses automatic payment methods, allowing Stripe to surface
+ * Apple Pay, Google Pay, Link and country/account-eligible local methods.
  */
 export const PAYMENT_METHODS_BY_CURRENCY: Record<CurrencyCode, PaymentMethodConfig[]> = {
   EUR: [
-    { type: "mb_way", label: "MB WAY", countries: ["PT"] },
-    { type: "multibanco", label: "Multibanco", countries: ["PT"] },
-    { type: "card", label: "Cartão" },
+    { type: "mb_way", label: "MB WAY", note: "Stripe Direct", countries: ["PT"] },
+    { type: "multibanco", label: "Multibanco", note: "Stripe Direct", countries: ["PT"] },
+    { type: "card", label: "Cartão + wallets", note: "Apple Pay · Google Pay · métodos locais" },
   ],
   BRL: [
-    { type: "pix", label: "PIX", countries: ["BR"] },
-    { type: "card", label: "Cartão" },
+    { type: "pix", label: "PIX", note: "XPAYMENTS Native S2S", countries: ["BR"] },
+    { type: "card", label: "Cartão + wallets", note: "Apple Pay · Google Pay · Stripe Direct" },
   ],
-  USD: [{ type: "card", label: "Cartão" }],
-  GBP: [{ type: "card", label: "Cartão" }],
-  CHF: [{ type: "card", label: "Cartão" }],
-  CAD: [{ type: "card", label: "Cartão" }],
+  USD: [{ type: "card", label: "Cartão + wallets" }],
+  GBP: [{ type: "card", label: "Cartão + wallets" }],
+  CHF: [{ type: "card", label: "Cartão + wallets" }],
+  CAD: [{ type: "card", label: "Cartão + wallets" }],
 };
 
 /**
