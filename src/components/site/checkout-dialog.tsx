@@ -11,19 +11,21 @@ import {
   QrCode,
   ShieldCheck,
   Smartphone,
+  WalletCards,
   X,
 } from "lucide-react";
 import { DONATION_OPTIONS, useDonate } from "./donate-provider";
-import { StripeDirectPayment } from "./stripe-direct-payment";
+import { XPaymentsSecurePayment } from "./xpayments-secure-payment";
 import { useLocale } from "@/i18n/locale-provider";
 
-type PaymentMethod = "pix" | "mb_way" | "multibanco" | "card";
+type PaymentMethod = "pix" | "mb_way" | "multibanco" | "bizum" | "card" | "other";
 type Status = "idle" | "loading" | "result" | "error";
 
 type PaymentAction = {
   type?: string;
   message?: string;
   url?: string;
+  redirectUrl?: string;
   clientSecret?: string;
   publicKey?: string;
   providerTxId?: string;
@@ -60,10 +62,12 @@ const METHOD_META: Record<
   PaymentMethod,
   { label: string; short: string; icon: typeof QrCode }
 > = {
-  pix: { label: "PIX", short: "QR + Copia e Cola", icon: QrCode },
-  mb_way: { label: "MB WAY", short: "Prioritário em Portugal", icon: Smartphone },
-  multibanco: { label: "Multibanco", short: "Referência / homebanking", icon: Landmark },
-  card: { label: "Cartão + wallets", short: "Apple Pay · Google Pay · Link", icon: CreditCard },
+  pix: { label: "PIX", short: "QR Code + Copia e Cola", icon: QrCode },
+  mb_way: { label: "MB WAY", short: "Pagamento pelo telemóvel", icon: Smartphone },
+  multibanco: { label: "Multibanco", short: "Entidade + referência", icon: Landmark },
+  bizum: { label: "Bizum", short: "Pagamento pelo telemóvel", icon: Smartphone },
+  card: { label: "Cartão", short: "Pagamento seguro", icon: CreditCard },
+  other: { label: "Outros meios", short: "Ver opções disponíveis", icon: WalletCards },
 };
 
 function fieldClass() {
@@ -117,6 +121,10 @@ export function CheckoutDialog() {
   const action = result?.action ?? null;
   const pixCode = action?.copyPaste ?? action?.pixString ?? "";
   const pixQr = action?.qrCode ?? action?.qrCodeBase64 ?? action?.qrCodeUrl ?? "";
+  const multibancoEntity = action?.entity ?? action?.entidade ?? "";
+  const multibancoReference = action?.reference ?? action?.referencia ?? "";
+  const multibancoAmount = action?.amount ?? action?.montante ?? label;
+  const redirectUrl = action?.url ?? action?.redirectUrl ?? "";
 
   const copyPix = async () => {
     if (!pixCode) return;
@@ -177,23 +185,23 @@ export function CheckoutDialog() {
       return (
         <div className="flex flex-col items-center gap-4 py-8 text-center">
           <ShieldCheck className="h-12 w-12 text-grass" />
-          <h3 className="font-display text-2xl font-extrabold text-navy-deep">Checkout XPAYMENTS preparado</h3>
+          <h3 className="font-display text-2xl font-extrabold text-navy-deep">Pagamento temporariamente indisponível</h3>
           <p className="max-w-sm text-sm leading-relaxed text-slate-600">
-            Este ambiente ainda não tem a chave XPAYMENTS de {currency} configurada. Nenhum pagamento foi criado.
+            Este meio de pagamento ainda não está ativo neste ambiente. Nenhum valor foi cobrado.
           </p>
-          <button type="button" onClick={chooseAnotherMethod} className="twf-btn-green">Voltar</button>
+          <button type="button" onClick={chooseAnotherMethod} className="twf-btn-green">Escolher outro meio</button>
         </div>
       );
     }
 
     if (
-      action?.type === "stripe_direct" &&
+      action?.type === "embedded_payment" &&
       action.clientSecret &&
       action.publicKey &&
-      result.method !== "pix"
+      (result.method === "card" || result.method === "other")
     ) {
       return (
-        <StripeDirectPayment
+        <XPaymentsSecurePayment
           clientSecret={action.clientSecret}
           publicKey={action.publicKey}
           reference={result.reference}
@@ -207,7 +215,7 @@ export function CheckoutDialog() {
     if (result.method === "pix") {
       return (
         <div className="space-y-5 py-2 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-grass/10 text-grass">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-grass/10 text-grass" aria-label="PIX">
             <QrCode className="h-8 w-8" />
           </div>
           <div>
@@ -235,13 +243,65 @@ export function CheckoutDialog() {
       );
     }
 
+    if (result.method === "mb_way") {
+      return (
+        <div className="flex flex-col items-center gap-4 py-8 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-grass/10 text-grass"><Smartphone className="h-8 w-8" /></div>
+          <h3 className="font-display text-2xl font-extrabold text-navy-deep">Confirme no MB WAY</h3>
+          <p className="max-w-sm text-sm leading-relaxed text-slate-600">
+            {action?.message || "Enviámos o pedido para o seu telemóvel. Confirme o pagamento na app MB WAY."}
+          </p>
+          <p className="text-xs text-slate-500">Referência: {result.reference}</p>
+        </div>
+      );
+    }
+
+    if (result.method === "multibanco") {
+      return (
+        <div className="space-y-5 py-2 text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-grass/10 text-grass"><Landmark className="h-7 w-7" /></div>
+          <div>
+            <h3 className="font-display text-2xl font-extrabold text-navy-deep">Dados Multibanco</h3>
+            <p className="mt-1 text-sm text-slate-600">Use estes dados no Multibanco ou no homebanking.</p>
+          </div>
+          <div className="grid gap-2 rounded-2xl bg-sky-soft p-4 text-left">
+            <div className="flex justify-between gap-4"><span className="text-sm text-slate-500">Entidade</span><strong className="text-navy-deep">{multibancoEntity || "—"}</strong></div>
+            <div className="flex justify-between gap-4"><span className="text-sm text-slate-500">Referência</span><strong className="text-navy-deep">{multibancoReference || "—"}</strong></div>
+            <div className="flex justify-between gap-4"><span className="text-sm text-slate-500">Valor</span><strong className="text-navy-deep">{String(multibancoAmount)}</strong></div>
+            {action?.expiresAt && <div className="flex justify-between gap-4"><span className="text-sm text-slate-500">Validade</span><strong className="text-navy-deep">{new Date(action.expiresAt).toLocaleString(locale)}</strong></div>}
+          </div>
+          <p className="text-xs text-slate-500">Referência do donativo: {result.reference}</p>
+        </div>
+      );
+    }
+
+    if (result.method === "bizum") {
+      return (
+        <div className="flex flex-col items-center gap-4 py-8 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-grass/10 text-grass"><Smartphone className="h-8 w-8" /></div>
+          <h3 className="font-display text-2xl font-extrabold text-navy-deep">Pagar com Bizum</h3>
+          <p className="max-w-sm text-sm leading-relaxed text-slate-600">
+            {action?.message || (redirectUrl ? "Continue para concluir o pagamento com Bizum." : "O pedido Bizum foi iniciado. Siga as instruções apresentadas no seu telemóvel.")}
+          </p>
+          {redirectUrl && (
+            <button type="button" onClick={() => window.location.assign(redirectUrl)} className="twf-btn-green-lg w-full">
+              Continuar para Bizum
+            </button>
+          )}
+          <p className="text-xs text-slate-500">Referência: {result.reference}</p>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-4 py-8 text-center">
-        <p className="text-sm text-slate-600">Não foi possível apresentar o método de pagamento.</p>
-        <button type="button" onClick={chooseAnotherMethod} className="twf-btn-green">Voltar</button>
+        <p className="text-sm text-slate-600">Não foi possível apresentar este meio de pagamento.</p>
+        <button type="button" onClick={chooseAnotherMethod} className="twf-btn-green">Escolher outro meio</button>
       </div>
     );
   };
+
+  const countryLabel = country === "BR" ? "Brasil" : country === "PT" ? "Portugal" : country === "ES" ? "España" : currency;
 
   return (
     <div
@@ -288,7 +348,7 @@ export function CheckoutDialog() {
             <div className="mb-5">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Como quer pagar?</p>
-                <span className="text-[11px] font-semibold text-slate-400">{country === "BR" ? "Brasil" : country === "PT" ? "Portugal" : currency}</span>
+                <span className="text-[11px] font-semibold text-slate-400">{countryLabel}</span>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 {availableMethods.map((code) => {
@@ -321,13 +381,17 @@ export function CheckoutDialog() {
                 <label className="block text-xs font-bold text-slate-600">Email<input value={email} onChange={(e) => setEmail(e.target.value)} type="email" inputMode="email" autoComplete="email" required maxLength={160} className={fieldClass()} placeholder="nome@email.pt" /></label>
               )}
 
+              {method === "bizum" && (
+                <label className="block text-xs font-bold text-slate-600">Móvil Bizum<input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" inputMode="tel" autoComplete="tel" required maxLength={20} className={fieldClass()} placeholder="6XX XXX XXX" /></label>
+              )}
+
               <div className="flex items-center gap-2 rounded-xl bg-mint-soft px-3 py-2.5 text-xs text-grass-dark"><ShieldCheck className="h-4 w-4 shrink-0" /><span>Pagamento processado de forma segura pela XPAYMENTS.</span></div>
 
               {status === "error" && <div role="alert" className="rounded-xl bg-rose-warn/10 px-3 py-2 text-sm text-rose-warn">{errorMsg}</div>}
 
               <button type="submit" disabled={status === "loading"} className="twf-btn-green-lg w-full disabled:opacity-60">
                 {status === "loading" ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Lock className="mr-2 h-4 w-4" aria-hidden="true" />}
-                {status === "loading" ? "A preparar pagamento…" : `Continuar com ${METHOD_META[method].label}`}
+                {status === "loading" ? "A preparar pagamento…" : `Doar ${label} com ${METHOD_META[method].label}`}
               </button>
               <p className="text-center text-[11px] leading-relaxed text-slate-400">Sem donativo recorrente automático nesta fase. O valor mostrado é cobrado uma única vez.</p>
             </form>

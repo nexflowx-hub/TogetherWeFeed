@@ -3,48 +3,48 @@
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, CreditCard, Loader2, Lock, RotateCcw, WalletCards } from "lucide-react";
 
-type StripeElement = {
+type PaymentElement = {
   mount: (target: HTMLElement) => void;
   destroy: () => void;
 };
 
-type StripeElements = {
-  create: (type: "payment", options?: Record<string, unknown>) => StripeElement;
+type PaymentElements = {
+  create: (type: "payment", options?: Record<string, unknown>) => PaymentElement;
 };
 
-type StripePaymentIntent = {
+type PaymentIntent = {
   id?: string;
   status?: string;
 };
 
-type StripeConfirmResult = {
+type ConfirmResult = {
   error?: { message?: string; type?: string };
-  paymentIntent?: StripePaymentIntent;
+  paymentIntent?: PaymentIntent;
 };
 
-type StripeClient = {
-  elements: (options: { clientSecret: string; appearance?: Record<string, unknown> }) => StripeElements;
+type PaymentClient = {
+  elements: (options: { clientSecret: string; appearance?: Record<string, unknown> }) => PaymentElements;
   confirmPayment: (options: {
-    elements: StripeElements;
+    elements: PaymentElements;
     confirmParams: { return_url: string };
     redirect: "if_required";
-  }) => Promise<StripeConfirmResult>;
+  }) => Promise<ConfirmResult>;
 };
 
 declare global {
   interface Window {
-    Stripe?: (publishableKey: string) => StripeClient;
+    Stripe?: (publishableKey: string) => PaymentClient;
   }
 }
 
-let stripeJsPromise: Promise<void> | null = null;
+let paymentJsPromise: Promise<void> | null = null;
 
-function loadStripeJs(): Promise<void> {
+function loadPaymentJs(): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
   if (window.Stripe) return Promise.resolve();
-  if (stripeJsPromise) return stripeJsPromise;
+  if (paymentJsPromise) return paymentJsPromise;
 
-  stripeJsPromise = new Promise<void>((resolve, reject) => {
+  paymentJsPromise = new Promise<void>((resolve, reject) => {
     const existing = document.querySelector<HTMLScriptElement>('script[src="https://js.stripe.com/v3/"]');
     if (existing) {
       existing.addEventListener("load", () => resolve(), { once: true });
@@ -60,35 +60,33 @@ function loadStripeJs(): Promise<void> {
     document.head.appendChild(script);
   });
 
-  return stripeJsPromise;
+  return paymentJsPromise;
 }
 
-type StripeDirectPaymentProps = {
+type SecurePaymentProps = {
   clientSecret: string;
   publicKey: string;
   reference: string;
-  method: "mb_way" | "multibanco" | "card";
+  method: "card" | "other";
   amountLabel: string;
   onBack: () => void;
 };
 
-function methodTitle(method: StripeDirectPaymentProps["method"]): string {
-  if (method === "mb_way") return "MB WAY";
-  if (method === "multibanco") return "Multibanco";
-  return "Cartão e carteiras digitais";
+function methodTitle(method: SecurePaymentProps["method"]): string {
+  return method === "card" ? "Pagar com cartão" : "Outros meios de pagamento";
 }
 
-export function StripeDirectPayment({
+export function XPaymentsSecurePayment({
   clientSecret,
   publicKey,
   reference,
   method,
   amountLabel,
   onBack,
-}: StripeDirectPaymentProps) {
+}: SecurePaymentProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
-  const stripeRef = useRef<StripeClient | null>(null);
-  const elementsRef = useRef<StripeElements | null>(null);
+  const clientRef = useRef<PaymentClient | null>(null);
+  const elementsRef = useRef<PaymentElements | null>(null);
   const [ready, setReady] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -96,18 +94,18 @@ export function StripeDirectPayment({
 
   useEffect(() => {
     let disposed = false;
-    let paymentElement: StripeElement | null = null;
+    let paymentElement: PaymentElement | null = null;
 
     const setup = async () => {
       try {
-        await loadStripeJs();
+        await loadPaymentJs();
         if (disposed || !window.Stripe || !mountRef.current) return;
 
-        const stripe = window.Stripe(publicKey);
-        const elements = stripe.elements({
+        const client = window.Stripe(publicKey);
+        const elements = client.elements({
           clientSecret,
           appearance: {
-            theme: "stripe",
+            theme: "flat",
             variables: {
               borderRadius: "12px",
               fontFamily: "inherit",
@@ -117,7 +115,7 @@ export function StripeDirectPayment({
 
         paymentElement = elements.create("payment", { layout: "tabs" });
         paymentElement.mount(mountRef.current);
-        stripeRef.current = stripe;
+        clientRef.current = client;
         elementsRef.current = elements;
         setReady(true);
       } catch (cause) {
@@ -132,21 +130,21 @@ export function StripeDirectPayment({
     return () => {
       disposed = true;
       paymentElement?.destroy();
-      stripeRef.current = null;
+      clientRef.current = null;
       elementsRef.current = null;
     };
   }, [clientSecret, publicKey]);
 
   const confirm = async () => {
-    const stripe = stripeRef.current;
+    const client = clientRef.current;
     const elements = elementsRef.current;
-    if (!stripe || !elements) return;
+    if (!client || !elements) return;
 
     setSubmitting(true);
     setError("");
 
     try {
-      const result = await stripe.confirmPayment({
+      const result = await client.confirmPayment({
         elements,
         confirmParams: {
           return_url: `${window.location.origin}/payment/complete`,
@@ -159,8 +157,7 @@ export function StripeDirectPayment({
         return;
       }
 
-      const status = result.paymentIntent?.status ?? "processing";
-      setConfirmedStatus(status);
+      setConfirmedStatus(result.paymentIntent?.status ?? "processing");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível confirmar o pagamento.");
     } finally {
@@ -178,13 +175,11 @@ export function StripeDirectPayment({
         </h3>
         <p className="max-w-sm text-sm leading-relaxed text-slate-600">
           {succeeded
-            ? "A confirmação foi recebida pelo processador de pagamento. Obrigado pelo seu apoio."
-            : "O pedido foi aceite e está a ser processado. Alguns métodos podem concluir de forma assíncrona."}
+            ? "Recebemos a confirmação do pagamento. Obrigado pelo seu apoio."
+            : "O pedido foi aceite e está a ser processado. Alguns meios de pagamento podem concluir de forma assíncrona."}
         </p>
         <p className="text-xs text-slate-400">Referência: {reference}</p>
-        <button type="button" onClick={onBack} className="twf-btn-green">
-          Fechar
-        </button>
+        <button type="button" onClick={onBack} className="twf-btn-green">Fechar</button>
       </div>
     );
   }
@@ -193,30 +188,24 @@ export function StripeDirectPayment({
     <div className="space-y-5 py-1">
       <div className="text-center">
         <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-grass/10 text-grass">
-          {method === "card" ? <WalletCards className="h-7 w-7" /> : <CreditCard className="h-7 w-7" />}
+          {method === "card" ? <CreditCard className="h-7 w-7" /> : <WalletCards className="h-7 w-7" />}
         </div>
         <h3 className="font-display text-2xl font-extrabold text-navy-deep">{methodTitle(method)}</h3>
         <p className="mt-1 text-sm text-slate-600">
           {method === "card"
-            ? "Cartão, Apple Pay, Google Pay, Link e outros métodos elegíveis aparecem automaticamente."
-            : `Conclua o pagamento de ${amountLabel} através do método selecionado.`}
+            ? "Introduza os dados do cartão no formulário seguro abaixo."
+            : "Escolha uma das opções de pagamento disponíveis para si."}
         </p>
       </div>
 
       <div className="rounded-2xl border border-sky-soft bg-white p-3 shadow-sm">
         {!ready && !error && (
           <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
-            <Loader2 className="h-5 w-5 animate-spin" /> A carregar opções seguras…
+            <Loader2 className="h-5 w-5 animate-spin" /> A carregar pagamento seguro…
           </div>
         )}
         <div ref={mountRef} />
       </div>
-
-      {method === "card" && (
-        <p className="rounded-xl bg-sky-soft px-3 py-2 text-xs leading-relaxed text-slate-600">
-          Apple Pay e Google Pay só são mostrados quando o browser/dispositivo, o domínio e a conta Stripe da Store são elegíveis.
-        </p>
-      )}
 
       {error && <div role="alert" className="rounded-xl bg-rose-warn/10 px-3 py-2 text-sm text-rose-warn">{error}</div>}
 
@@ -235,7 +224,7 @@ export function StripeDirectPayment({
       </button>
 
       <p className="text-center text-[11px] leading-relaxed text-slate-400">
-        Processamento XPAYMENTS Stripe Direct. Os dados de cartão são tratados diretamente pelo Stripe.js e não passam pelo Together We Feed.
+        Pagamento seguro processado pela XPAYMENTS. Os dados sensíveis são tratados no formulário protegido e não passam pelo Together We Feed.
       </p>
     </div>
   );

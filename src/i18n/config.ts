@@ -1,13 +1,11 @@
 // Locale + currency configuration for Together We Feed.
 //
-// Payments are intentionally normalised to two merchant markets while the
-// project validates Brazil + Portugal/Europe:
-//   - Brazil -> BRL (PIX Native S2S + Stripe Direct for cards/wallets)
-//   - every other country, including all of Europe -> EUR (Stripe Direct)
+// Payments are normalised to two merchant markets during launch:
+//   - Brazil -> BRL
+//   - every other country, including Europe -> EUR
 //
-// Keeping only two active checkout currencies lets the server select the
-// correct XPayments integration deterministically and avoids accidental
-// cross-store routing.
+// The checkout presents local methods first and keeps provider/routing details
+// outside the donor-facing experience.
 
 export type CurrencyCode = "EUR" | "USD" | "GBP" | "BRL" | "CHF" | "CAD";
 
@@ -47,34 +45,39 @@ export type PaymentMethodConfig = {
   countries?: string[];
 };
 
-/**
- * Checkout presentation order. For Portugal we explicitly prioritise MB WAY
- * and Multibanco before the broad Stripe Direct Payment Element. The generic
- * `card` option uses automatic payment methods, allowing Stripe to surface
- * Apple Pay, Google Pay, Link and country/account-eligible local methods.
- */
+/** Donor-facing method order. Local payment rails come before generic options. */
 export const PAYMENT_METHODS_BY_CURRENCY: Record<CurrencyCode, PaymentMethodConfig[]> = {
   EUR: [
-    { type: "mb_way", label: "MB WAY", note: "Stripe Direct", countries: ["PT"] },
-    { type: "multibanco", label: "Multibanco", note: "Stripe Direct", countries: ["PT"] },
-    { type: "card", label: "Cartão + wallets", note: "Apple Pay · Google Pay · métodos locais" },
+    { type: "mb_way", label: "MB WAY", note: "Pagamento pelo telemóvel", countries: ["PT"] },
+    { type: "multibanco", label: "Multibanco", note: "Entidade e referência", countries: ["PT"] },
+    { type: "bizum", label: "Bizum", note: "Pagamento pelo telemóvel", countries: ["ES"] },
+    { type: "card", label: "Cartão", note: "Pagamento seguro" },
+    { type: "other", label: "Outros meios", note: "Ver opções disponíveis" },
   ],
   BRL: [
-    { type: "pix", label: "PIX", note: "XPAYMENTS Native S2S", countries: ["BR"] },
-    { type: "card", label: "Cartão + wallets", note: "Apple Pay · Google Pay · Stripe Direct" },
+    { type: "pix", label: "PIX", note: "QR Code + Copia e Cola", countries: ["BR"] },
+    { type: "card", label: "Cartão", note: "Pagamento seguro" },
+    { type: "other", label: "Outros meios", note: "Ver opções disponíveis" },
   ],
-  USD: [{ type: "card", label: "Cartão + wallets" }],
-  GBP: [{ type: "card", label: "Cartão + wallets" }],
-  CHF: [{ type: "card", label: "Cartão + wallets" }],
-  CAD: [{ type: "card", label: "Cartão + wallets" }],
+  USD: [
+    { type: "card", label: "Cartão" },
+    { type: "other", label: "Outros meios" },
+  ],
+  GBP: [
+    { type: "card", label: "Cartão" },
+    { type: "other", label: "Outros meios" },
+  ],
+  CHF: [
+    { type: "card", label: "Cartão" },
+    { type: "other", label: "Outros meios" },
+  ],
+  CAD: [
+    { type: "card", label: "Cartão" },
+    { type: "other", label: "Outros meios" },
+  ],
 };
 
-/**
- * During the Brazil + Europe launch, every visitor outside Brazil defaults to
- * EUR. This includes the whole of Europe and also gives donors from other
- * countries a valid route through the EUR XPayments Store instead of a dead
- * currency for which no API key exists.
- */
+/** During launch, every visitor outside Brazil defaults to EUR. */
 export const COUNTRY_TO_CURRENCY: Record<string, CurrencyCode> = {
   BR: "BRL",
 };
@@ -109,7 +112,6 @@ export const CURRENCIES: Record<CurrencyCode, CurrencyConfig> = {
   CAD: { code: "CAD", symbol: "$", label: "Canadian Dollar", presets: [7, 15, 28, 48, 70, 135], rateFromEur: 1.47, countries: ["CA"] },
 };
 
-/** Currencies exposed in the launch checkout / switcher. */
 export const CHECKOUT_CURRENCIES: CurrencyCode[] = ["EUR", "BRL"];
 
 export const DEFAULT_LOCALE: LocaleCode = "pt-PT";
