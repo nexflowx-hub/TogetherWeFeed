@@ -5,6 +5,7 @@ import { AlertCircle, Loader2, Pause, Play, RotateCcw, Volume2, VolumeX } from "
 import { useLocale } from "@/i18n/locale-provider";
 
 const DEFAULT_POSTER = "/media/images/video-poster.webp";
+const DEFAULT_VIDEO_URL = "https://hopeheaart.com/pt/media/videos/apresentacao.mp4";
 
 export function VideoSection() {
   const { messages } = useLocale();
@@ -15,7 +16,7 @@ export function VideoSection() {
   const [mediaError, setMediaError] = useState(false);
 
   const videoUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_TWF_VIDEO_URL?.trim() || "",
+    () => process.env.NEXT_PUBLIC_TWF_VIDEO_URL?.trim() || DEFAULT_VIDEO_URL,
     []
   );
 
