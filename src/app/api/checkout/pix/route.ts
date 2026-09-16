@@ -9,6 +9,22 @@ export const dynamic = "force-dynamic";
 const MIN_BRL = 10;
 const MAX_BRL = 6000;
 
+type SupportTargetInput = {
+  id?: unknown;
+  slug?: unknown;
+  title?: unknown;
+  category?: unknown;
+  type?: unknown;
+};
+
+type PixCheckoutInput = {
+  amount?: unknown;
+  name?: unknown;
+  cpf?: unknown;
+  ownershipConfirmed?: unknown;
+  target?: SupportTargetInput;
+};
+
 function clean(value: unknown, max: number) {
   return String(value ?? "").trim().replace(/\s+/g, " ").slice(0, max);
 }
@@ -21,25 +37,27 @@ function fail(message: string, status = 400, errorCode = "INVALID_REQUEST") {
 }
 
 export async function POST(req: Request) {
-  let body: any;
+  let body: PixCheckoutInput;
   try {
-    body = await req.json();
+    body = (await req.json()) as PixCheckoutInput;
   } catch {
     return fail("Pedido PIX inválido.");
   }
 
-  const amount = Number(body?.amount);
-  const name = clean(body?.name, 120);
-  const cpf = onlyDigits(body?.cpf);
+  const amount = Number(body.amount);
+  const name = clean(body.name, 120);
+  const cpf = onlyDigits(body.cpf);
+  const targetType = clean(body.target?.type, 16);
   const target = {
-    id: clean(body?.target?.id, 80),
-    slug: clean(body?.target?.slug, 120),
-    title: clean(body?.target?.title, 160),
-    category: clean(body?.target?.category, 120),
-    type: ["cause", "category", "campaign"].includes(body?.target?.type)
-      ? body.target.type
-      : "cause",
-  };
+    id: clean(body.target?.id, 80),
+    slug: clean(body.target?.slug, 120),
+    title: clean(body.target?.title, 160),
+    category: clean(body.target?.category, 120),
+    type:
+      targetType === "cause" || targetType === "category" || targetType === "campaign"
+        ? targetType
+        : "cause",
+  } as const;
 
   if (!Number.isFinite(amount) || amount < MIN_BRL || amount > MAX_BRL) {
     return fail("Escolha um valor entre R$ 10 e R$ 6.000.", 422, "PIX_AMOUNT_OUT_OF_RANGE");
@@ -50,7 +68,7 @@ export async function POST(req: Request) {
   if (!isValidCpf(cpf)) {
     return fail("Informe um CPF válido do titular da conta que fará o PIX.", 422, "INVALID_PAYER_DOCUMENT");
   }
-  if (body?.ownershipConfirmed !== true) {
+  if (body.ownershipConfirmed !== true) {
     return fail(
       "Confirme que o PIX será pago por uma conta vinculada ao CPF informado.",
       422,
@@ -106,7 +124,7 @@ export async function POST(req: Request) {
       },
       { headers: { "cache-control": "no-store" } }
     );
-  } catch (error) {
+  } catch {
     console.error("[dons-pix] charge failed", {
       reference,
       targetId: target.id || null,
