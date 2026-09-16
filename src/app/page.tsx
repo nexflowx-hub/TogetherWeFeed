@@ -6,6 +6,7 @@ import { VideoSection } from "@/components/site/video-section";
 import { MissionSection } from "@/components/site/mission-section";
 import { StatsSection } from "@/components/site/stats-section";
 import { DonateSection } from "@/components/site/donate-section";
+import { CauseSupportSection } from "@/components/site/cause-support-section";
 import { UrgencySection } from "@/components/site/urgency-section";
 import { GoalSection } from "@/components/site/goal-section";
 import { ImpactsSection } from "@/components/site/impacts-section";
@@ -40,6 +41,8 @@ export default function Home() {
             <div className="h-6 bg-white sm:h-8" />
 
             <StatsSection />
+
+            <CauseSupportSection />
 
             <DonateSection variant="sky" id="doar" />
 
